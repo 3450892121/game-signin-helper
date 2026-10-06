@@ -42,7 +42,8 @@ Windows x64 绿色版（免安装）桌面应用：**每天自动帮你完成游
 
 ## 下载与安装（普通用户看这里）
 
-1. 到 **[Releases](https://github.com/3450892121/game-signin-helper/releases)** 下载最新的 `游戏社区签到助手-免安装版-vX.Y.Z.7z`。
+1. 到 **[Releases](https://github.com/3450892121/game-signin-helper/releases)** 下载最新的 `.7z` 资产
+   （文件名形如 `game-signin-helper-v<版本>-portable-x64.7z`；GitHub 的资产名不支持中文，解压出来的目录仍是中文名）。
 2. 解压（要整包解压，不能只拷 exe——同目录的 `.dll` / `.pak` / `locales` 必须带齐）。
 3. 打开里面的「**游戏社区签到助手**」子文件夹 → 双击 `游戏社区签到助手.exe`。
    - 首次运行 Windows 可能弹蓝色「已保护你的电脑」提示：因为程序**没有代码签名**，点「更多信息」→「仍要运行」即可（只在第一次出现）。
