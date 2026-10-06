@@ -1,0 +1,74 @@
+{
+  "name": "game-signin-helper",
+  "productName": "游戏社区签到助手",
+  "version": "2.9.1",
+  "description": "鸣潮(库街区)/崩铁(米游社)/异环(塔吉多) 社区自动签到助手",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "selftest": "electron . --selftest",
+    "smoke": "node scripts/smoke.js",
+    "smoke:full": "node scripts/smoke.js --full",
+    "test:core": "node scripts/test-consistency.js && node scripts/test-registry.js && node scripts/test-core.js",
+    "test:refs": "node scripts/check-system-refs.js",
+    "dist": "electron-builder --win nsis --x64",
+    "dist:dir": "electron-builder --win dir --x64",
+    "release": "node scripts/release.js",
+    "release:relink": "node scripts/release.js --relink-only"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "7zip-bin": "^5.2.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.gamesignin.helper",
+    "productName": "游戏社区签到助手",
+    "asar": true,
+    "compression": "maximum",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "core/**/*",
+      "package.json"
+    ],
+    "electronDist": "node_modules/electron/dist",
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "游戏社区签到助手",
+      "uninstallDisplayName": "游戏社区签到助手",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "language": "2052",
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+# 依赖
+node_modules/
+
+# 构建产物 / 交付物
+dist/
+build/*.bak
+out/
+*.zip
+*.7z
+游戏社区签到助手-免安装版-v*/
+游戏社区签到助手 Setup *.exe
+
+# 本机工具（打 7z 用，各人自行准备）
+工具/
+
+# 本地可能误放的运行数据（真实凭据绝不能提交）
+data/
+config.json
+*.log
+.env
+.env.*
+
+# 系统与编辑器临时
+Thumbs.db
+.DS_Store

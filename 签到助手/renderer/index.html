@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+<title>游戏社区签到助手</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ==================== 顶栏 ==================== -->
+  <header class="topbar">
+    <div class="brand">🎮 游戏社区签到助手 <span id="app-version" class="app-version" title="点击查看版本与关于信息"></span></div>
+    <nav id="tabs" class="tabs">
+      <button class="tab active" data-page="accounts">账号管理</button>
+      <button class="tab" data-page="calendar">签到日历</button>
+      <button class="tab" data-page="notify">通知设置</button>
+    </nav>
+    <div class="topbar-right">
+      <span id="next-trigger" class="next-trigger" title="下次定时签到时间（启用游戏+启用账号，账号时间>游戏时间>全局时间）"></span>
+      <button id="btn-run-all" class="btn primary btn-run-all" title="立即签到全部启用账号（不受设定时间影响）">立即签到全部</button>
+    </div>
+  </header>
+
+  <div id="bridge-warn" class="bridge-warn hidden">未检测到应用桥接，请通过应用主程序启动。当前为受限预览模式，仅用于查看界面。</div>
+
+  <main id="main">
+
+    <!-- ==================== 账号管理（含时间设置） ==================== -->
+    <section id="page-accounts" class="page active">
+      <div class="page-head">
+        <h2>账号管理</h2>
+        <p class="page-desc">绑定游戏账号，并为每个游戏/账号设置签到时间；全局统一时间是兜底时间。</p>
+        <div class="page-head-actions">
+          <button id="btn-manage-games" class="btn secondary">管理游戏脚本</button>
+        </div>
+      </div>
+
+      <!-- 签到设置面板：全局时间 + 系统快捷开关（两列合并，不空旷） -->
+      <div class="panel panel-global">
+        <div class="panel-head">
+          <h3>⚙️ 签到设置<span class="tip" data-tip="全局统一时间是所有游戏/账号的兜底时间，必须最晚——这样应用没开时，系统任务到点能把当天该签的账号全部补上。系统快捷开关都在这里，不用往下翻。">ⓘ</span></h3>
+        </div>
+        <div class="global-grid">
+          <div class="global-col">
+            <div class="form-row">
+              <label class="form-label" for="set-default-time">⏱ 全局时间</label>
+              <input id="set-default-time" class="input time-input" type="time" step="60" title="HH:mm">
+            </div>
+            <div class="form-hint" id="global-time-hint">未单独设置的游戏/账号都用这个时间</div>
+            <div id="global-time-msg" class="form-msg"></div>
+          </div>
+          <div class="global-col">
+            <div class="quick-row">
+              <label class="switch" title="登录 Windows 后自动启动并后台常驻">
+                <input type="checkbox" id="set-autostart">
+                <span class="track"></span><span>开机自启</span>
+              </label>
+              <label class="switch" title="应用没开时，到全局时间由系统任务拉起补签">
+                <input type="checkbox" id="set-systask">
+                <span class="track"></span><span>系统任务</span>
+              </label>
+            </div>
+            <div class="quick-row">
+              <label class="form-label row-label">关窗口</label>
+              <select id="set-close-behavior" class="input select select-wide">
+                <option value="tray">隐藏到托盘</option>
+                <option value="exit">直接退出</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="sys-status-row">
+          <span id="timer-mode-hint" class="form-hint"></span>
+          <span id="systask-msg" class="form-msg msg-end"></span>
+        </div>
+        <div id="systask-status" class="systask-status"></div>
+      </div>
+
+      <div id="game-cards" class="game-cards"></div>
+    </section>
+
+    <!-- ==================== 签到日历 ==================== -->
+    <section id="page-calendar" class="page">
+      <div class="page-head">
+        <h2>签到日历</h2>
+        <p class="page-desc">按游戏查看每天签到结果：✅ 当天全部成功；❌ 失败 / 部分未完成 / 无记录（没跑或电脑没开也算失败）。</p>
+      </div>
+      <div class="cal-toolbar">
+        <button id="cal-prev" class="btn secondary">◀ 上月</button>
+        <span id="cal-title" class="cal-title"></span>
+        <button id="cal-next" class="btn secondary">下月 ▶</button>
+        <button id="cal-today" class="btn primary">回到今天</button>
+        <div class="cal-legend">
+          <span>✅ 全成功</span>
+          <span>❌ 失败 / 无记录</span>
+          <span class="lg-today">今天</span>
+        </div>
+      </div>
+      <div id="cal-cards" class="cal-cards"></div>
+      <div id="cal-day-detail" class="cal-day-detail hidden"></div>
+      <details class="panel details-panel">
+        <summary>📄 运行日志（排查问题用）</summary>
+        <div class="details-body">
+          <div class="panel-head">
+            <label class="autoscroll"><input type="checkbox" id="log-autoscroll" checked> 自动滚动</label>
+          </div>
+          <div id="log-stream" class="log-stream"></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ==================== 通知设置 ==================== -->
+    <section id="page-notify" class="page">
+      <div class="page-head">
+        <h2>通知设置</h2>
+        <p class="page-desc">任一游戏签到失败时通过以下渠道推送告警；留空即关闭该渠道。密钥仅以掩码显示，不会回显明文。</p>
+      </div>
+      <div class="panel">
+        <div class="channel-row">
+          <div class="channel-name">🔔 Server酱 <span class="channel-tag">serverchan</span></div>
+          <div class="form-row">
+            <label class="form-label" for="notify-serverchan">SendKey（密钥）</label>
+            <input id="notify-serverchan" class="input secret" type="password" placeholder="留空关闭；输入新值后保存即覆盖" autocomplete="off" spellcheck="false">
+            <button class="btn secondary btn-test" data-channel="serverchan">发送测试</button>
+          </div>
+        </div>
+        <div class="channel-row">
+          <div class="channel-name">📮 PushPlus <span class="channel-tag">pushplus</span></div>
+          <div class="form-row">
+            <label class="form-label" for="notify-pushplus">Token（令牌）</label>
+            <input id="notify-pushplus" class="input secret" type="password" placeholder="留空关闭；输入新值后保存即覆盖" autocomplete="off" spellcheck="false">
+            <label class="form-label inline-label" for="notify-pushplus-tpl">模板</label>
+            <select id="notify-pushplus-tpl" class="input select">
+              <option value="html">HTML（富文本）</option>
+              <option value="markdown">Markdown（纯文本）</option>
+            </select>
+            <button class="btn secondary btn-test" data-channel="pushplus">发送测试</button>
+          </div>
+        </div>
+        <div class="channel-row">
+          <div class="channel-name">💬 企业微信 <span class="channel-tag">wecom</span></div>
+          <div class="form-row">
+            <label class="form-label" for="notify-wecom">Webhook（回调地址）</label>
+            <input id="notify-wecom" class="input secret" type="password" placeholder="留空关闭；输入新值后保存即覆盖" autocomplete="off" spellcheck="false">
+            <button class="btn secondary btn-test" data-channel="wecom">发送测试</button>
+          </div>
+        </div>
+        <div class="channel-row">
+          <div class="channel-name">📧 邮箱（SMTP） <span class="channel-tag">email</span></div>
+          <div class="form-row">
+            <label class="form-label" for="notify-email-host">SMTP 服务器</label>
+            <input id="notify-email-host" class="input" type="text" placeholder="如 smtp.qq.com / smtp.163.com" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="notify-email-port">端口</label>
+            <input id="notify-email-port" class="input" type="text" placeholder="465（SSL）或 587（STARTTLS）" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="notify-email-user">发件邮箱</label>
+            <input id="notify-email-user" class="input" type="text" placeholder="你的邮箱地址（登录名）" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="notify-email-pass">授权码/密码（掩码显示）</label>
+            <input id="notify-email-pass" class="input secret" type="password" placeholder="QQ/163 等需用授权码，非登录密码；留空关闭；输入新值保存即覆盖" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="notify-email-to">收件邮箱</label>
+            <input id="notify-email-to" class="input" type="text" placeholder="接收告警的邮箱地址" autocomplete="off" spellcheck="false">
+            <button class="btn secondary btn-test" data-channel="email">发送测试</button>
+          </div>
+        </div>
+        <div class="channel-row">
+          <div class="channel-name">🤖 QQ 机器人 <span class="channel-tag">qqbot</span></div>
+          <div class="form-row">
+            <label class="form-label" for="notify-qqbot-appid">AppID</label>
+            <input id="notify-qqbot-appid" class="input" type="text" placeholder="QQ 开放平台机器人管理页里的 AppID" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="notify-qqbot-secret">AppSecret（掩码显示）</label>
+            <input id="notify-qqbot-secret" class="input secret" type="password" placeholder="机器人密钥，不要外发；输入新值后保存即覆盖" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="form-row">
+            <label class="form-label">绑定与测试</label>
+            <button id="btn-qqbot-bind" class="btn secondary">开始绑定</button>
+            <button id="btn-qqbot-cancel" class="btn secondary hidden">取消绑定</button>
+            <button class="btn secondary btn-test" data-channel="qqbot">发送测试</button>
+          </div>
+          <div id="notify-qqbot-status" class="form-msg"></div>
+          <div id="notify-qqbot-report" class="form-msg"></div>
+          <div class="form-hint" id="notify-qqbot-time"></div>
+          <div class="form-hint">绑定方法：点「开始绑定」后，软件会显示一个 6 位绑定码；3 分钟内在 QQ 里把该码发给机器人即可完成绑定。签到失败仍走其它各渠道的即时告警；QQ 只收每天一条汇总日报（失败项一并列出）。</div>
+        </div>
+        <div class="form-actions">
+          <button id="btn-save-notify" class="btn primary">保存通知设置</button>
+          <span id="notify-msg" class="form-msg"></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer id="footer" class="footer"></footer>
+</div>
+
+<!-- ==================== 登录弹窗 ==================== -->
+<div id="login-modal" class="modal-overlay hidden">
+  <div class="modal login-modal">
+    <div class="modal-head">
+      <span id="dlg-title" class="modal-title">添加账号</span>
+      <button id="dlg-close" class="modal-close" title="关闭">✕</button>
+    </div>
+    <div id="dlg-methods" class="method-tabs"></div>
+    <div class="modal-body">
+
+      <!-- 当前登录方式的官方网址 + 操作步骤帮助区（由 renderer/app.js 按所选方式渲染；无 help 字段的插件不显示） -->
+      <div id="dlg-help" class="method-help hidden"></div>
+
+      <!-- 短信验证码 -->
+      <div id="panel-sms" class="method-panel hidden">
+        <div class="form-row">
+          <label class="form-label" for="dlg-mobile">手机号</label>
+          <input id="dlg-mobile" class="input" type="tel" maxlength="11" placeholder="请输入 11 位手机号" autocomplete="off">
+        </div>
+        <div class="form-row code-row">
+          <label class="form-label" for="dlg-code">验证码</label>
+          <input id="dlg-code" class="input code-input" type="text" maxlength="8" placeholder="短信验证码" autocomplete="off" spellcheck="false">
+          <button id="dlg-send-code" class="btn secondary">发送验证码</button>
+        </div>
+        <button id="dlg-sms-login" class="btn primary block">登录</button>
+      </div>
+
+      <!-- 动态面板容器：password/qr/web 面板由 renderer/app.js 按需创建 -->
+      <div id="dlg-dynamic-panels"></div>
+
+      <!-- 粘贴凭据 -->
+      <div id="panel-paste" class="method-panel hidden">
+        <p class="panel-hint" id="dlg-paste-hint">粘贴登录凭据（token / Cookie），仅加密存储，不会明文回显。</p>
+        <textarea id="dlg-paste" class="input paste-input masked" rows="4" placeholder="在此粘贴 token / Cookie…" spellcheck="false"></textarea>
+        <label class="mask-toggle"><input type="checkbox" id="dlg-paste-show"> 显示内容</label>
+        <button id="dlg-paste-login" class="btn primary block">登录</button>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <div id="dlg-msg" class="dialog-msg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 确认弹窗 ==================== -->
+<div id="confirm-modal" class="modal-overlay hidden">
+  <div class="modal small">
+    <div class="modal-head"><span class="modal-title">确认操作</span></div>
+    <div class="modal-body"><p id="confirm-text" class="confirm-text"></p></div>
+    <div class="modal-foot modal-foot-right">
+      <button id="confirm-cancel" class="btn secondary">取消</button>
+      <button id="confirm-ok" class="btn danger">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 管理游戏脚本弹窗 ==================== -->
+<div id="manage-modal" class="modal-overlay hidden">
+  <div class="modal manage-modal">
+    <div class="modal-head">
+      <span class="modal-title">管理游戏脚本</span>
+      <button id="manage-close" class="modal-close" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="manage-toolbar">
+        <button id="manage-import" class="btn primary">📥 导入脚本…</button>
+        <button id="manage-open-dir" class="btn secondary">📂 打开脚本目录</button>
+        <button id="manage-reload" class="btn secondary">🔄 刷新</button>
+      </div>
+      <div id="manage-errors" class="manage-errors hidden"></div>
+      <div id="manage-list" class="manage-list"></div>
+      <p class="manage-tip">添加游戏脚本有两种办法：① 点「📥 导入脚本…」选中插件<strong>文件夹</strong>（里面含 <code>index.js</code>），应用会自动拷进脚本目录并立即生效；② 或点「📂 打开脚本目录」自己把文件夹放进去，再点「🔄 刷新」。文件夹名可自定义（中文也行），游戏 id 由插件自己的 <code>index.js</code> 决定、与文件夹名无关。移除用户插件会同时清除该游戏全部账号与调度设置（凭据不可恢复）。</p>
+    </div>
+    <div class="modal-foot">
+      <div id="manage-msg" class="dialog-msg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 全局忙碌遮罩 -->
+<div id="busy-overlay" class="modal-overlay hidden"><div class="busy-box">处理中…</div></div>
+
+<!-- ==================== 关于弹窗 ==================== -->
+<div id="about-modal" class="modal-overlay hidden">
+  <div class="modal small">
+    <div class="modal-head">
+      <span class="modal-title">关于</span>
+      <button id="about-close" class="modal-close" title="关闭">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="about-logo">🎮</div>
+      <div class="about-name">游戏社区签到助手</div>
+      <div class="about-version" id="about-version"></div>
+      <div class="about-meta" id="about-meta"></div>
+      <div class="about-datadir" id="about-datadir"></div>
+    </div>
+    <div class="modal-foot modal-foot-right">
+      <button id="about-ok" class="btn primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-root" class="toast-root"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

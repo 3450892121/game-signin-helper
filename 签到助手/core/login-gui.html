@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>浏览器登录 · 游戏社区签到助手</title>
+<style>
+ * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: linear-gradient(160deg, #0e1a2e 0%, #16304f 60%, #1b3a5e 100%);
+    min-height: 100vh; color: #e8eef7; padding: 24px 14px 48px;
+  }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 20px; }
+  header h1 { font-size: 22px; letter-spacing: 1px; color: #fff; }
+  header p { font-size: 12px; color: #9fb3cc; margin-top: 6px; line-height: 1.6; }
+  .card {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px; padding: 16px; margin-bottom: 14px;
+    backdrop-filter: blur(6px);
+  }
+  .card h2 { font-size: 14px; color: #8fd0ff; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .card h2::before { content: "▍"; }
+  .info-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+  .info-grid .k { color: #9fb3cc; white-space: nowrap; }
+  .info-grid .v { color: #e8eef7; word-break: break-all; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+  .badge.ok { background: #1f7a4d; color: #d8ffe9; }
+  .badge.warn { background: #8a5a12; color: #ffe9c2; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .tab {
+    flex: 1; text-align: center; padding: 10px 0; border-radius: 10px; cursor: pointer;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    font-size: 14px; color: #b9c9dd; transition: all .15s; user-select: none;
+  }
+  .tab.active { background: #2f6fb2; color: #fff; border-color: #4d90d8; box-shadow: 0 2px 12px rgba(47,111,178,.5); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  label { display: block; font-size: 12px; color: #9fb3cc; margin: 10px 0 4px; }
+  .hint-note { font-size: 12px; color: #ffd98a; line-height: 1.6; margin-top: 6px; background: rgba(138,90,18,.18); border: 1px solid rgba(255,217,138,.35); border-radius: 8px; padding: 8px 10px; }
+  input, textarea {
+    width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(0,0,0,0.25); color: #fff; font-size: 15px; outline: none;
+  }
+  input:focus, textarea:focus { border-color: #4d90d8; box-shadow: 0 0 0 2px rgba(77,144,216,.25); }
+  input::placeholder, textarea::placeholder { color: #5f748f; }
+  textarea { min-height: 110px; resize: vertical; font-family: Consolas, monospace; font-size: 13px; }
+  .row { display: flex; gap: 8px; }
+  .row input { flex: 1; }
+  .btn {
+    width: 100%; margin-top: 14px; padding: 12px; border: none; border-radius: 10px;
+    background: linear-gradient(135deg, #2f6fb2, #1e4f8a); color: #fff; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: all .15s;
+  }
+  .btn:hover { filter: brightness(1.15); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+  .btn.small { width: auto; margin-top: 0; padding: 11px 14px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  .btn.gray { background: rgba(255,255,255,0.12); }
+  .msg {
+    margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+    display: none; word-break: break-all;
+  }
+  .msg.ok { display: block; background: rgba(31,122,77,0.25); border: 1px solid #1f7a4d; color: #d8ffe9; }
+  .msg.err { display: block; background: rgba(160,40,40,0.25); border: 1px solid #a02828; color: #ffd6d6; }
+  .msg.info { display: block; background: rgba(47,111,178,0.25); border: 1px solid #2f6fb2; color: #d6ecff; }
+  .footer { text-align: center; font-size: 11px; color: #7d91ab; margin-top: 18px; line-height: 1.8; }
+  .success-banner {
+    display: none; text-align: center; padding: 12px; border-radius: 12px; margin-bottom: 14px;
+    background: linear-gradient(135deg, rgba(31,122,77,.4), rgba(21,105,74,.3));
+    border: 1px solid #1f7a4d; color: #d8ffe9; font-size: 14px; font-weight: 600;
+  }
+  .success-banner.show { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎮 <span id="gameName">…</span> 登录</h1>
+    <p>登录成功后自动加入「游戏社区签到助手」· 本地运行，仅本机可访问</p>
+  </header>
+
+  <div class="success-banner" id="successBanner">✅ 登录成功！账号已加入「游戏社区签到助手」</div>
+
+  <div class="card">
+    <h2>已绑定账号（本应用内）</h2>
+    <div class="info-grid" id="curInfo">
+      <span class="k">状态</span><span class="v" id="curState">读取中…</span>
+    </div>
+  </div>
+
+  <!-- tab 的 data-tab 值必须与主进程下发的 method key 完全一致（main.js 用 'sms'/'paste' 这类字符串过滤），
+       否则该 tab 永远不显示。本页面只提供 sms / paste 两个 tab，test-consistency.js 有断言防止误加其它 tab。 -->
+  <div class="tabs" id="tabs">
+    <div class="tab" data-tab="sms">短信登录</div>
+    <div class="tab" data-tab="paste">粘贴凭据</div>
+  </div>
+
+  <!-- 短信登录 -->
+  <div class="card panel" id="panel-sms">
+    <h2>手机号 + 短信验证码</h2>
+    <label>手机号</label>
+    <div class="row">
+      <input id="smsPhone" placeholder="11 位手机号" maxlength="11" inputmode="numeric">
+      <button class="btn small" id="smsSendBtn">发送验证码</button>
+    </div>
+    <label>验证码</label>
+    <input id="smsCode" placeholder="验证码" maxlength="8" inputmode="numeric">
+    <button class="btn" id="smsBtn">登 录</button>
+    <div class="msg" id="smsMsg"></div>
+  </div>
+
+  <!-- 粘贴凭据 -->
+  <div class="card panel" id="panel-paste">
+    <h2>粘贴凭据（token / Cookie）</h2>
+    <label>凭据内容</label>
+    <textarea id="pasteToken" placeholder="粘贴 token 或 Cookie 内容"></textarea>
+    <p class="hint-note">粘贴登录通常无法自动续期，失效后需重新粘贴。</p>
+    <button class="btn" id="pasteBtn">保 存</button>
+    <div class="msg" id="pasteMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>操作</h2>
+    <div class="row">
+      <button class="btn small gray" id="refreshBtn" style="flex:1">刷新状态</button>
+      <button class="btn small gray" id="shutdownBtn" style="flex:1">关闭登录界面</button>
+    </div>
+    <p class="footer">
+      登录成功后回到「游戏社区签到助手」即可看到新账号，可立即手动签到。<br>
+      本页面数据仅在本机 127.0.0.1 内传输。
+    </p>
+  </div>
+</div>
+
+<script>
+'use strict';
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+if (!TOKEN) {
+  document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;text-align:center;color:#ffd6d6;line-height:2">'
+    + '⚠️ 请通过「游戏社区签到助手」的浏览器登录入口打开本页面<br>'
+    + '（直接双击 HTML 文件无法访问登录服务）</div>';
+  throw new Error('no token');
+}
+
+const $ = id => document.getElementById(id);
+// 动态插值转义（页面无 CSP，插件凭据字段异常/恶意时防 HTML 注入）
+function escH(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function showMsg(el, type, text) { el.className = 'msg ' + type; el.textContent = text; }
+function clearMsg(el) { el.className = 'msg'; }
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', 'X-Auth-Token': TOKEN },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
+// 按服务端返回的可用登录方式显示 tab
+function applyMethods(methods) {
+  const avail = Array.isArray(methods) ? methods : ['sms', 'paste'];
+  const tabs = document.querySelectorAll('.tab');
+  let firstVisible = null;
+  tabs.forEach(t => {
+    const k = t.dataset.tab;
+    const visible = avail.indexOf(k) >= 0;
+    t.style.display = visible ? '' : 'none';
+    if (visible && !firstVisible) firstVisible = t;
+  });
+  if (firstVisible) firstVisible.classList.add('active');
+  const activePanel = firstVisible ? ('panel-' + firstVisible.dataset.tab) : 'panel-paste';
+  const p = $(activePanel);
+  if (p) p.classList.add('active');
+}
+
+function renderStatus(data) {
+  if (data.gameName) $('gameName').textContent = data.gameName;
+  applyMethods(data.methods);
+  const box = $('curInfo');
+  if (!data.ok || data.hasAccounts === false || !data.accounts || !data.accounts.length) {
+    box.innerHTML = '<span class="k">状态</span><span class="v"><span class="badge warn">尚未绑定</span></span>'
+      + '<span class="k">提示</span><span class="v">下方任选一种方式登录，成功后自动加入「游戏社区签到助手」</span>';
+    return;
+  }
+  box.innerHTML =
+    '<span class="k">状态</span><span class="v"><span class="badge ok">已绑定 ' + data.accounts.length + ' 个账号</span></span>' +
+    data.accounts.map(a =>
+      '<span class="k">账号</span><span class="v">' + escH(a.nickname || '-') + ' · 方式 ' + escH(a.source || '-')
+      + (a.hasRefreshToken ? ' · <span class="badge ok">可自动续期</span>' : ' · <span class="badge warn">无续期（需重新登录/粘贴）</span>')
+      + '</span>'
+    ).join('');
+}
+
+async function refreshStatus(quiet) {
+  try {
+    const d = await api('/api/status');
+    if (d.ok) renderStatus(d);
+  } catch (e) {
+    if (!quiet) $('curState').textContent = '无法连接登录服务：' + e.message;
+  }
+}
+
+async function doLogin(path, body, msgEl, btn) {
+  btn.disabled = true; clearMsg(msgEl);
+  showMsg(msgEl, 'info', '正在登录，请稍候…');
+  try {
+    const d = await api(path, body);
+    if (d.ok) {
+      showMsg(msgEl, 'ok', d.tip || '登录成功！');
+      const banner = $('successBanner'); banner.classList.add('show');
+      banner.textContent = '✅ 登录成功！账号已加入「游戏社区签到助手」';
+      setTimeout(() => banner.classList.remove('show'), 8000);
+      refreshStatus(true);
+    } else {
+      showMsg(msgEl, 'err', '❌ ' + (d.message || '登录失败'));
+    }
+  } catch (e) {
+    showMsg(msgEl, 'err', '请求异常：' + e.message);
+  } finally { btn.disabled = false; }
+}
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    $('panel-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+let countdown = null;
+$('smsSendBtn').addEventListener('click', async () => {
+  const phone = $('smsPhone').value.trim();
+  const msg = $('smsMsg');
+  if (!/^\d{11}$/.test(phone)) { showMsg(msg, 'err', '请填写 11 位手机号'); return; }
+  clearMsg(msg);
+  showMsg(msg, 'info', '正在发送验证码…');
+  try {
+    const d = await api('/api/sms/send', { phone });
+    if (d.ok) {
+      showMsg(msg, 'info', '📨 ' + (d.message || '验证码已发送，请注意查收'));
+      const btn = $('smsSendBtn'); btn.disabled = true;
+      let n = 60;
+      btn.textContent = '重新发送(' + n + 's)';
+      countdown = setInterval(() => {
+        n--;
+        if (n <= 0) { clearInterval(countdown); btn.disabled = false; btn.textContent = '发送验证码'; }
+        else btn.textContent = '重新发送(' + n + 's)';
+      }, 1000);
+    } else {
+      showMsg(msg, 'err', '❌ ' + (d.message || '发送失败'));
+    }
+  } catch (e) { showMsg(msg, 'err', '请求异常：' + e.message); }
+});
+$('smsBtn').addEventListener('click', () => {
+  const phone = $('smsPhone').value.trim(), code = $('smsCode').value.trim();
+  if (!/^\d{11}$/.test(phone)) { showMsg($('smsMsg'), 'err', '请填写 11 位手机号'); return; }
+  if (!/^\d{4,8}$/.test(code)) { showMsg($('smsMsg'), 'err', '请填写验证码'); return; }
+  doLogin('/api/sms/login', { phone, code }, $('smsMsg'), $('smsBtn'));
+});
+
+$('pasteBtn').addEventListener('click', () => {
+  const token = $('pasteToken').value.trim();
+  if (!token) { showMsg($('pasteMsg'), 'err', '请粘贴凭据内容'); return; }
+  doLogin('/api/paste', { token }, $('pasteMsg'), $('pasteBtn'));
+});
+
+$('refreshBtn').addEventListener('click', () => refreshStatus(false));
+$('shutdownBtn').addEventListener('click', async () => {
+  try { await api('/api/shutdown', {}); }
+  catch (e) { /* 服务器可能已关闭 */ }
+  document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;text-align:center;color:#d8ffe9;line-height:2">✅ 登录界面已关闭，可以关闭本页面了</div>';
+});
+
+refreshStatus(false);
+</script>
+</body>
+</html>
