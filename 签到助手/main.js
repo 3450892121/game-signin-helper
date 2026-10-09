@@ -1998,7 +1998,7 @@ if (shouldQuit) {
     if (state.dailyMaintainTimer) { clearInterval(state.dailyMaintainTimer); state.dailyMaintainTimer = null; }
     if (state.sessionPruneTimer) { clearInterval(state.sessionPruneTimer); state.sessionPruneTimer = null; }
     if (state.qqReportTimer) { clearInterval(state.qqReportTimer); state.qqReportTimer = null; }
-    if (state.guiServers) { for (const s of state.guiServers.values()) { try { s.close(); } catch (e) { /* ignore */ } } state.guiServers.clear; }
+    if (state.guiServers) { for (const s of state.guiServers.values()) { try { s.close(); } catch (e) { /* ignore */ } } state.guiServers.clear(); }
     if (state.services) state.services.scheduler.stop();
   });
 

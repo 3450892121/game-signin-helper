@@ -154,6 +154,10 @@ game-signin-helper/
 接口协议的实现参考了下列开源项目（特此署名，MIT 项目的署名一并在源码注释中保留）：
 Womsxd/MihoyoBBSTools、Loping151/TGDSign、Loping151/XutheringWavesUID、Candy-QAQ/NTE-Auto-Sign、SkyBlue997/tjd-daily、Kuro-API-Collection。
 
+### 素材
+
+- 应用图标 `签到助手/build/icon.ico`（同时也是 exe 内嵌图标与桌面快捷方式图标）为本项目作者自制的原创素材，不取自任何第三方图标库，随本仓库一并按 MIT 授权。
+
 ## 许可
 
 本项目源码以 **MIT License** 授权，见 [LICENSE](LICENSE)。
