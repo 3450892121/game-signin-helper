@@ -1,16 +1,16 @@
 'use strict';
 /**
- * 日志/展示脱敏单源
+ * 日志/展示脱敏单源（v2.7.6 Z5/D17/D18）
  *
  * 背景：签到/登录失败兜底常把「原始响应体片段」塞进 result.lines / Error message，
  * 落盘 signin.log（保留一年）或回显 UI/终端。若响应含 token/cookie 等字段将长期留存。
  * 本模块在出口处统一掩码，仅用于展示/持久化文本，不影响插件返回的原始数据结构与契约。
  *
  * 规则（保守，避免误伤正常文案）：
- * 1. JSON 字符串值：键名命中 CRED_KEY_RE 时值掩码（"accessToken":"xxx" → "accessToken":"***"）
- * 2. 查询串/表单键值：token=xxx → token=***
- * 3. JWT 三段式整体掩码
- * 4. 长十六进制串（>=32 位，可能是 token/指纹）掩码
+ *  1. JSON 字符串值：键名命中 CRED_KEY_RE 时值掩码（"accessToken":"xxx" → "accessToken":"***"）
+ *  2. 查询串/表单键值：token=xxx → token=***
+ *  3. JWT 三段式整体掩码
+ *  4. 长十六进制串（>=32 位，可能是 token/指纹）掩码
  * 另提供 maskId：uid 等账号标识类 PII 的首尾保留掩码（诊断脚本用）。
  */
 

@@ -4,26 +4,29 @@
  *
  * 接口来源：UIGF-org/mihoyo-api-sdk（原 mihoyo-api-collect 已归档）、Womsxd/MihoyoBBSTools、Genshin-bots/gsuid_core
  *
- * 登录（两种方式）：
- * 1) 网页登录（推荐，kind:'web'）：打开 user.mihoyo.com 登录后由 webMeta.extractScript 自动提取
- * Cookie（含 HttpOnly cookie_token_v2）→ 交给 loginByCookie。用户无需 F12 抓包。
- * 2) 粘贴 Cookie（kind:'paste'）：loginByCookie(cookie) → credentials
- * （自动 strip 清洗误带前缀；须含 HttpOnly cookie_token_v2）
+ * 登录（两种方式，均可用）：
+ *   1) 网页登录（推荐，kind:'web'）：打开 user.mihoyo.com 登录后由 webMeta.extractScript 自动提取
+ *        Cookie（含 HttpOnly cookie_token_v2）→ 交给 loginByCookie。用户无需 F12 抓包。
+ *   2) 粘贴 Cookie（kind:'paste'）：loginByCookie(cookie) → credentials
+ *        （自动 strip 清洗误带前缀；须含 HttpOnly cookie_token_v2）
  *
- * 不提供扫码与短信登录：
- * - 扫码：本模块用的 hk4e「panda」端点已失效——Womsxd/MihoyoBBSTools issue #285 报 gametoken 换
- * stoken 返回 retcode:-5300，#284 评论「现在用扫码换不到真的 stoken 了」。
- * 注：「扫码」本身没死，死的是 panda 端点——Genshin-bots/gsuid_core 换用 ma-cn-passport 端点仍在跑。
- * - 短信：米游社短信登录本身可用（外部证据 BTMuli/TeyvatGuide），但必须在界面内嵌官方极验控件、
- * 由用户手动通过。本模块没有可用的 actionType 传递链路——框架只从返回值的 sessionData 取该标识。
+ * 已移除的登录方式（2026-10-04，附移除依据；如需恢复见 git 历史）：
+ *   - 扫码登录：本模块用的是 hk4e 「panda」端点，该端点已失效——Womsxd/MihoyoBBSTools issue #285
+ *     （2026-09-13，未修）报 gametoken 换 stoken 返回 retcode:-5300；#284 评论（2026-09-15）
+ *     「现在用扫码换不到真的 stoken 了」。且全仓无任何界面入口（无插件声明 kind:'qr'），属死代码。
+ *     注：Genshin-bots/gsuid_core 改用 ma-cn-passport 端点仍在跑——「扫码」本身没死，死的是 panda 端点。
+ *   - 短信验证码登录：本模块实现的链路是断的——sendSmsCode 把 action_type 放在返回值顶层，而框架
+ *     main.js 只从 r.sessionData 取（无任何插件生产该字段），导致 loginBySms 必然抛「缺少验证任务标识」。
+ *     外部证据（BTMuli/TeyvatGuide，2026-10-02 仍在推）表明米游社短信登录本身可用，但必须在界面内嵌
+ *     官方极验控件由用户手动通过——那是新功能，不属本次裁剪范围。
  *
  * 凭据（credentials）：{ userName, userId, cookie, gameUid, region, roleName,
- * stokenV1?, stuid?, stokenV2?, mid?, deviceId?, source }
- * - Cookie 里带 stoken_v2+mid 时签到可自动续期
+ *                        stokenV1?, stuid?, stokenV2?, mid?, deviceId?, source }
+ *   - Cookie 里带 stoken_v2+mid 时签到可自动续期
  *
  * 签到：
- * signin(account) → { result, credentialsUpdate }
- * - 每次签到前用 stoken 换新 cookie_token（免抓包续期）
+ *   signin(account) → { result, credentialsUpdate }
+ *     - 每次签到前用 stoken 换新 cookie_token（免抓包续期）
  */
 
 const https = require('https');
@@ -385,7 +388,7 @@ module.exports = {
   defaultEnabled: true,
   defaultTime: '05:55',
   loginMethods: [
-    // 两种登录方式：网页登录为推荐主路（自动提取 Cookie，用户无需 F12 抓包），
+    // 两种登录方式（2026-10-04 核实）：网页登录为推荐主路（自动提取 Cookie，用户无需 F12 抓包），
     // 粘贴 Cookie 为兜底。扫码/短信已移除，依据见本文件头部注释。
     { id: 'web', kind: 'web', label: '网页登录（推荐）', needs: ['web'], hint: '打开米游社登录页登录后自动提取 Cookie（含 HttpOnly cookie_token_v2），免手动 F12 抓包', help: {
       links: [{ url: 'https://user.mihoyo.com/', text: '米游社登录页' }],

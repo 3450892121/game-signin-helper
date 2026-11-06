@@ -3,27 +3,27 @@
  * 库街区（鸣潮）协议模块
  *
  * 接口来源：mxyooR/Kuro-AutoSignin、TomyJan/Kuro-API-Collection
- * - 发送验证码：POST /user/getSmsCode （2024.06.17，APP 端）
- * - 验证码登录：POST /user/sdkLogin
- * - 用户信息 ：POST /user/mineV2
- * - 角色列表 ：POST /user/role/findRoleList (gameId=3)
- * - 鸣潮签到 ：POST /encourage/signIn/v2
- * - 签到记录 ：POST /encourage/signIn/queryRecordV2
+ *   - 发送验证码：POST /user/getSmsCode         （2024.06.17，APP 端）
+ *   - 验证码登录：POST /user/sdkLogin
+ *   - 用户信息  ：POST /user/mineV2
+ *   - 角色列表  ：POST /user/role/findRoleList  (gameId=3)
+ *   - 鸣潮签到  ：POST /encourage/signIn/v2
+ *   - 签到记录  ：POST /encourage/signIn/queryRecordV2
  *
- * 登录（三种方式；短信为推荐主路。signin 按 credentials.source 分端头）：
- * sendSmsCode(mobile) → { ok, needGeeTest, msg } // 发送短信验证码
- * loginBySms(mobile, code) → credentials // 验证码登录（推荐）
- * loginByPaste(raw) → credentials // 粘贴 token（或 {token, distinct_id} JSON）
- * kind:'web' 网页登录 → 打开 kurobbs.com 登录后由 webMeta.extractScript 从 localStorage
- * 提取 AUTH_TOKEN + distinct_id → h5 头，web token 可签到
- * 注：APP 端 token 与 Web 端 token 分端、互不通用，且 APP 端同时只允许一个登录（取新 token 会作废旧的）
- * ——依据 TomyJan/Kuro-API-Collection 的 sdkLogin.md / sdkLoginForH5.md 原文。
- * 注：网页登录这条（localStorage 取 AUTH_TOKEN）在外部开源项目里找不到第二家同做法，属本仓自有实现，
- * 链路完整但缺少外部佐证；另有线索显示库街区存在 H5 发码端点 /user/getSmsCodeForH5
- * （Loping151/XutheringWavesUID 在用，内嵌官方极验 v4），若 APP 端发码被极验卡死可往这个方向查。
+ * 登录（三种方式；短信为推荐主路，用户实测可用。signin 按 credentials.source 分端头）：
+ *   sendSmsCode(mobile)            → { ok, needGeeTest, msg }        // 发送短信验证码
+ *   loginBySms(mobile, code)       → credentials                     // 验证码登录（推荐）
+ *   loginByPaste(raw)              → credentials                     // 粘贴 token（或 {token, distinct_id} JSON）
+ *   kind:'web' 网页登录            → 打开 kurobbs.com 登录后由 webMeta.extractScript 从 localStorage
+ *                                    提取 AUTH_TOKEN + distinct_id → h5 头，web token 可签到
+ *   注：APP 端 token 与 Web 端 token 分端、互不通用，且 APP 端同时只允许一个登录（取新 token 会作废旧的）
+ *       ——依据 TomyJan/Kuro-API-Collection 的 sdkLogin.md / sdkLoginForH5.md 原文，2026-10-04 复核仍成立。
+ *   注：网页登录这条（localStorage 取 AUTH_TOKEN）在外部开源项目里找不到第二家同做法，属本仓自有实现，
+ *       链路完整但缺少外部佐证；另有线索显示库街区存在 H5 发码端点 /user/getSmsCodeForH5
+ *       （Loping151/XutheringWavesUID 在用，内嵌官方极验 v4），若 APP 端发码被极验卡死可往这个方向查。
  *
  * 签到：
- * signin(account) → { result, credentialsUpdate }
+ *   signin(account)                → { result, credentialsUpdate }
  */
 
 const https = require('https');
@@ -170,8 +170,8 @@ function pickUserInfoHeaders(cred, ip) {
  * 发送短信验证码
  * @param {string} mobile 手机号
  * @returns {Promise<{ok:boolean, needGeeTest:boolean, msg:string, raw?:object}>}
- * code=200 且 data.geeTest=false 才表示验证码已发送；
- * needGeeTest=true 表示触发极验人机验证（UI 需提示走官方 App 获取验证码）。
+ *   code=200 且 data.geeTest=false 才表示验证码已发送；
+ *   needGeeTest=true 表示触发极验人机验证（UI 需提示走官方 App 获取验证码）。
  */
 async function sendSmsCode(mobile) {
   const devcode = crypto.randomBytes(16).toString('hex');
@@ -429,7 +429,7 @@ module.exports = {
   defaultEnabled: true,
   defaultTime: '05:50',
   loginMethods: [
-    // 登录方式：短信验证码（推荐，用户实测可用） / 粘贴 token（兜底） / 网页登录
+    // 登录方式（2026-10-04 核实）：短信验证码（推荐，用户实测可用） / 粘贴 token（兜底） / 网页登录
     // 每种方式带 help（官方网址 + 小白分步操作说明），由登录弹窗「官方网址与操作步骤」帮助区渲染
     { id: 'sms', kind: 'sms', label: '手机号+短信验证码（推荐）', needs: ['mobile', 'code'], hint: '用手机库街区给同一手机号发码，把收到的验证码填回本应用；发码可能触发极验人机验证（当前为图标点选），触发时改用「粘贴 token」', help: {
       links: [{ url: 'https://www.kurobbs.com/', text: '库街区网页版' }],

@@ -36,7 +36,7 @@ function requestUrl(method, url, headers, bodyStr) {
 /** 构造 SMTP 邮件文本（UTF-8 base64 编码正文/主题，避免中文头部乱码） */
 function buildSmtpMessage(user, to, title, content) {
   const b64 = (s) => Buffer.from(String(s), 'utf8').toString('base64');
-  // 正文 base64 按 76 字符折行（RFC 5321 单行限 998 字节；长失败通知整信一行会被服务器拒收）
+  // v2.7.6 D5：正文 base64 按 76 字符折行（RFC 5321 单行限 998 字节；长失败通知整信一行会被服务器拒收）
   const b64Folded = (s) => b64(s).replace(/(.{76})/g, '$1\r\n');
   // 主题按 RFC 2047 encoded-word（总长 ≤75 字符）切分，续行以 CRLF+空格 折叠（段长取 60=4 的倍数保证可独立解码）
   const raw = b64(title || '通知');
@@ -155,7 +155,7 @@ function smtpSend(cfg, title, content) {
   });
 }
 
-/** 业务结果解析：HTTP 2xx ≠ 业务成功——
+/** 业务结果解析（v2.7.6 D4）：HTTP 2xx ≠ 业务成功——
  * 企微 webhook 错误 key 返回 {errcode:40008}、pushplus 返回 {code:903}、Server酱 {code:40001} 等 */
 function bizResult(body) {
   try {
@@ -202,7 +202,7 @@ async function notify(notifyCfg, title, content, log) {
     try {
       const r = await fn();
       const httpOk = r.status >= 200 && r.status < 300;
-      const biz = bizResult(r.body);   // 2xx 但业务码失败（如企微 key 错误）不再误报已发送
+      const biz = bizResult(r.body);   // v2.7.6 D4：2xx 但业务码失败（如企微 key 错误）不再误报已发送
       if (httpOk && biz.ok) { ok++; if (log) log('📣 失败告警已发送'); }
       else if (log) log('📣 告警渠道返回异常：HTTP ' + r.status + (biz.ok ? '' : ' / ' + biz.detail));
     } catch (e) {

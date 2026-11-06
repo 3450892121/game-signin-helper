@@ -3,17 +3,17 @@
  * 游戏社区签到助手 — renderer 逻辑（纯 JS，无框架）
  *
  * 与主进程通信仅通过 preload 暴露的白名单桥 window.app：
- * window.app.invoke(channel, payload) -> Promise<{ok, ...}> （通道白名单见 preload.js 的 INVOKE_CHANNELS）
- * window.app.on(event, handler) （事件白名单见 preload.js 的 EVENT_CHANNELS）
- * 两处白名单与 main.js 的 IPC_CHANNELS / EVENT_CHANNELS 由 scripts/test-consistency.js 强制三方一致，
- * 所以这里不写死数量（写死会随功能增删过时）。
+ *   window.app.invoke(channel, payload) -> Promise<{ok, ...}>   （通道白名单见 preload.js 的 INVOKE_CHANNELS）
+ *   window.app.on(event, handler)                               （事件白名单见 preload.js 的 EVENT_CHANNELS）
+ *   两处白名单与 main.js 的 IPC_CHANNELS / EVENT_CHANNELS 由 scripts/test-consistency.js 强制三方一致，
+ *   所以这里不写死数量（写死会随功能增删过时）。
  *
  * 密钥掩码约定（与主进程 settings:save / notify:test 对齐）：
- * - settings:load 返回的密钥字段为掩码串（含 ****，如 "****abcd"）或空串；
- * - 保存时：字段输入未改动 -> 发送 null（主进程保留原值）；
- * 清空 -> 发送 "" （关闭该渠道）；
- * 输入新值 -> 原样发送（覆盖）。
- * - notify:test 的 cfg 同理：未改动的密钥传 null，主进程用已存值测试。
+ *   - settings:load 返回的密钥字段为掩码串（含 ****，如 "****abcd"）或空串；
+ *   - 保存时：字段输入未改动 -> 发送 null（主进程保留原值）；
+ *             清空         -> 发送 "" （关闭该渠道）；
+ *             输入新值     -> 原样发送（覆盖）。
+ *   - notify:test 的 cfg 同理：未改动的密钥传 null，主进程用已存值测试。
  *
  * 安全：本文件不写日志、不打印任何手机号/验证码/凭据明文；凭据只出现在
  * 粘贴输入框（默认掩码显示），提交后立即调用 IPC，不做本地存储。
@@ -55,7 +55,7 @@
     autostart: false,
   };
 
-  /* 登录弹窗会话状态（手机号/验证码/凭据不落盘，仅内存） */
+  /* 登录弹窗会话状态（S.5：手机号/验证码/凭据不落盘，仅内存） */
   const dlg = {
     open: false,
     game: null,              // {id,name,community}
@@ -77,7 +77,7 @@
     }[c]));
   }
 
-  /** ⓘ 悬浮提示：data-tip + title 兜底（键盘/无障碍） */
+  /** ⓘ 悬浮提示（v2.6.0）：data-tip + title 兜底（键盘/无障碍） */
   function tip(text) {
     const t = String(text == null ? '' : text);
     return '<span class="tip" data-tip="' + esc(t) + '" title="' + esc(t) + '" tabindex="0">ⓘ</span>';
@@ -141,8 +141,14 @@
   /* ==================== 页面切换 ==================== */
   function switchPage(page) {
     state.page = page;
-    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === page));
+    $$('.tab').forEach((t) => {
+      const active = t.dataset.page === page;
+      t.classList.toggle('active', active);
+      if (active) t.setAttribute('aria-current', 'page');
+      else t.removeAttribute('aria-current');
+    });
     $$('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + page));
+    $('#main').scrollTop = 0;
     if (page === 'calendar') { loadCalendarPage(); }
     if (page === 'accounts') { renderAccounts(); }
   }
@@ -174,7 +180,7 @@
       if (as.ok && typeof as.enabled === 'boolean') state.autostart = as.enabled;
       // 系统任务状态改为后台异步查询，不阻塞启动（schtasks 查询慢/卡时不影响界面）
       invoke('system:task:status').then((t) => {
-        // 无条件刷新——原条件 state.page==='schedule' 引用早已删除的页面，
+        // v2.7.6 修复（Z2）：无条件刷新——原条件 state.page==='schedule' 引用早已删除的页面，
         // 永假导致启动后系统任务状态框永不更新（已有任务仍显示"当前未创建"）
         if (t.ok && Array.isArray(t.tasks)) { state.taskStatus = t.tasks; renderTaskStatus(); }
       }).catch(() => {});
@@ -238,7 +244,7 @@
       if (list.length) warns = ' ⚠️ ' + list.join('；');
     }
     f.textContent = '游戏社区签到助手 ' + v + dir + warns;
-    f.classList.toggle('footer-warn', !!warns);   // 颜色走令牌类，不再写死 hex
+    f.classList.toggle('footer-warn', !!warns);   // v2.7.6 D11：颜色走令牌类，不再写死 hex
   }
 
   /* 下次触发时间：启用游戏 × 有启用账号，取最近一次（今天未到则今天，否则明天） */
@@ -274,7 +280,7 @@
       if (a.enabled === false) continue;
       const gs = (s.games || {})[a.game];
       if (!gs || gs.enabled === false) continue;
-      const t = effectiveTime(a, s);   // 统一走本文件唯一的 effectiveTime，别再内联一份回退逻辑
+      const t = effectiveTime(a, s);   // 统一走本文件唯一的 effectiveTime()，别再内联一份回退逻辑
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) continue;
       const g = state.games.find((x) => x.id === a.game);
       const day = t > today ? '今天' : '明天';
@@ -286,6 +292,7 @@
       ? ('下次签到：' + shown.map((i) => i.text).join(' · ') + (items.length > 2 ? ' …' : ''))
       : '未启用签到（请到账号管理页设置时间并启用）';
     el.title = items.length ? items.map((i) => i.text).join('\n') : '未启用签到';
+    el.setAttribute('aria-label', el.title);
   }
 
   /* ==================== 账号管理页 ==================== */
@@ -366,17 +373,15 @@
             : '暂无账号，点击「添加账号」绑定') + '</div>';
 
       return (
-        '<div class="game-card' + (gs.enabled === false ? ' game-off' : '') + '" data-game="' + g.id + '">' +
+        '<div class="game-card' + (gs.enabled === false ? ' game-off' : '') + '" data-game="' + esc(g.id) + '">' +
           '<div class="game-card-head">' +
             '<div class="card-head-left">' +
-              '<span class="game-title">' + gameIcon(g) + ' ' + esc(g.name) + '</span>' +
-              '<span class="game-community">' + esc(g.community) + '</span>' +
-              '<span class="game-time-box">' +
-                '<label class="time-label">每游戏时间</label>' +
-                '<input class="input time-input game-time-input" type="time" step="60" data-role="game-time" data-game="' + g.id + '" value="' + esc(gTime) + '" title="留空=跟随全局 ' + esc(gTime || s.defaultTime || '') + '">' +
-                '<span class="eff-hint">' + (gTime ? '生效：' + esc(gTime) : (s.defaultTime ? '跟随全局 ' + esc(s.defaultTime) : '')) + '</span>' +
-                tip('该游戏所有账号的默认签到时间；某账号单独设置了时间则优先用它的。留空=跟随全局。') +
-              '</span>' +
+              '<span class="game-mark" aria-hidden="true">' + esc(gameIcon(g)) + '</span>' +
+              '<div class="game-heading-copy">' +
+                '<span class="game-title">' + esc(g.name) + '</span>' +
+                '<span class="game-community">' + esc(g.community) + '</span>' +
+                '<span class="game-account-count">' + accounts.length + ' 个账号</span>' +
+              '</div>' +
             '</div>' +
             '<div class="card-head-right">' +
               '<label class="switch" title="关闭后该游戏全部账号不参与定时签到">' +
@@ -387,6 +392,12 @@
               '<button class="btn primary mini" data-role="add-account" data-game="' + g.id + '">+ 添加账号</button>' +
             '</div>' +
           '</div>' +
+          '<div class="game-time-box">' +
+            '<label class="time-label">每游戏时间</label>' +
+            '<input class="input time-input game-time-input" type="time" step="60" data-role="game-time" data-game="' + esc(g.id) + '" value="' + esc(gTime) + '" title="留空=跟随全局 ' + esc(gTime || s.defaultTime || '') + '">' +
+            '<span class="eff-hint">' + (gTime ? '生效：' + esc(gTime) : (s.defaultTime ? '跟随全局 ' + esc(s.defaultTime) : '')) + '</span>' +
+            tip('该游戏所有账号的默认签到时间；某账号单独设置了时间则优先用它的。留空=跟随全局。') +
+          '</div>' +
           '<div class="account-list">' + rows + '</div>' +
         '</div>'
       );
@@ -394,12 +405,12 @@
   }
 
   /**
- * 账号生效时间（三级回退：账号 → 游戏 → 全局），界面显示用。
- * 这是渲染层**唯一**一份实现（顶栏「下次签到」也调它，别再内联第二份）。
- * 调度侧的权威实现是 core/storage.js 的 effectiveTimeFor——两份口径必须一致，
- * 由 scripts/test-consistency.js 的断言锁定；改回退顺序时两边都要改。
- * （渲染层跑在 sandbox 里拿不到 Node，无法直接 require 共用同一份代码，只能靠断言守住。）
- */
+   * 账号生效时间（三级回退：账号 → 游戏 → 全局），界面显示用。
+   * 这是渲染层**唯一**一份实现（顶栏「下次签到」也调它，别再内联第二份）。
+   * 调度侧的权威实现是 core/storage.js 的 effectiveTimeFor()——两份口径必须一致，
+   * 由 scripts/test-consistency.js 的断言锁定；改回退顺序时两边都要改。
+   * （渲染层跑在 sandbox 里拿不到 Node，无法直接 require 共用同一份代码，只能靠断言守住。）
+   */
   function effectiveTime(a, s) {
     s = s || state.settings || {};
     const gs = (s.games || {})[a.game] || {};
@@ -476,7 +487,7 @@
     return g ? g.name : id;
   }
 
-  /* ==================== 账号页：系统设置面板 ==================== */
+  /* ==================== 账号页：系统设置面板（v2.6.0 由调度页并入） ==================== */
   function renderSystemPanel() {
     const s = state.settings;
     if (!s) return;
@@ -488,7 +499,7 @@
     renderTaskStatus();
   }
 
-  /* 定时方式提示：游戏/账号时间靠内置定时器（挂后台）；全局时间是系统任务兜底 */
+  /* 定时方式提示（v2.6.0）：游戏/账号时间靠内置定时器（挂后台）；全局时间是系统任务兜底 */
   function renderTimerHint() {
     const el = $('#timer-mode-hint');
     if (!el) return;
@@ -512,7 +523,7 @@
       ).join('');
   }
 
-  /** 全局统一时间即改即存：校验格式 + 全局必须最晚 */
+  /** 全局统一时间即改即存（v2.6.0）：校验格式 + 全局必须最晚 */
   async function onDefaultTimeChange() {
     const inp = $('#set-default-time');
     const msg = $('#global-time-msg');
@@ -542,7 +553,7 @@
     }
   }
 
-  /** 游戏统一时间即改即存：留空=跟随全局；不得晚于全局 */
+  /** 游戏统一时间即改即存（v2.6.0）：留空=跟随全局；不得晚于全局 */
   async function onGameTimeChange(inp) {
     const game = inp.dataset.game;
     const val = inp.value;
@@ -565,7 +576,7 @@
     }
   }
 
-  /** 账号自定义时间即改即存：留空=跟随游戏/全局；不得晚于全局 */
+  /** 账号自定义时间即改即存（v2.6.0）：留空=跟随游戏/全局；不得晚于全局 */
   async function onAccountTimeChange(inp) {
     const id = inp.dataset.id;
     const val = inp.value;
@@ -600,14 +611,14 @@
     if (!r.ok) {
       msg.textContent = '设置失败：' + (r.error || ''); msg.className = 'form-msg err';
       s.autoStart = !checked; $('#set-autostart').checked = !checked;
-      return;   // 注册表未改成功时不再把状态写入设置
+      return;   // v2.7.6 修复（Z3）：注册表未改成功时不再把状态写入设置
     }
     state.autostart = !!r.enabled;
     const rs = await invoke('settings:save', { settings: s });
     if (rs.ok) {
       msg.textContent = '✓ 开机自启已' + (checked ? '开启' : '关闭'); msg.className = 'form-msg ok';
     } else {
-      // 注册表已切换但设置持久化失败——如实提示，不谎报成功
+      // v2.7.6 修复（Z3）：注册表已切换但设置持久化失败——如实提示，不谎报成功
       msg.textContent = '开机自启已' + (checked ? '开启' : '关闭') + '，但设置保存失败：' + (rs.error || '');
       msg.className = 'form-msg err';
     }
@@ -620,7 +631,7 @@
     msg.textContent = ''; msg.className = 'form-msg';
     const r = await invoke('settings:save', { settings: s });
     if (!r.ok) {
-      // 保存失败不得继续触发任务同步——否则主进程会按磁盘旧设置
+      // v2.7.6 修复（Z3）：保存失败不得继续触发任务同步——否则主进程会按磁盘旧设置
       // 把「签到助手-*」任务全部删除却向用户报成功。回滚开关并如实提示。
       s.useSystemTask = !checked; $('#set-systask').checked = !checked;
       msg.textContent = '保存失败，系统计划任务未变更：' + (r.error || ''); msg.className = 'form-msg err';
@@ -661,8 +672,8 @@
     }
   }
 
-  /* ==================== 签到日历页 ==================== */
-  const calState = { year: 0, month: 0, data: {}, detailGame: '', detailDate: '' };
+  /* ==================== 签到日历页（游戏切换 + 单张月历 + 日期明细） ==================== */
+  const calState = { year: 0, month: 0, data: {}, gameId: '', detailGame: '', detailDate: '', error: '', dataRequest: 0, detailRequest: 0 };
   const calPad = (x) => String(x).padStart(2, '0');
 
   function todayDs() {
@@ -672,27 +683,32 @@
 
   async function loadCalendarPage() {
     if (!state.games.length) {
+      calState.dataRequest++; calState.detailRequest++;
+      $('#cal-games').innerHTML = '';
       $('#cal-cards').innerHTML = '<div class="empty-list empty-hero">还没有游戏脚本。请到「账号管理」页点「管理游戏脚本」→「📥 导入脚本…」，选中插件文件夹即可。</div>';
       $('#cal-title').textContent = '';
       $('#cal-day-detail').classList.add('hidden');
     } else {
       const now = new Date();
       if (!calState.year) { calState.year = now.getFullYear(); calState.month = now.getMonth() + 1; }
-      await loadCalendarData();
-      renderCalendar();
+      if (await loadCalendarData()) renderCalendar();
     }
     loadRecentLogs();
   }
 
   async function loadCalendarData() {
+    const request = ++calState.dataRequest;
     const r = await invoke('calendar:month', { year: calState.year, month: calState.month });
+    if (request !== calState.dataRequest) return false;
     calState.data = (r.ok && r.games) ? r.games : {};
+    calState.error = r.ok ? '' : (r.error || '暂时无法读取签到记录，请切换月份后重试');
+    return true;
   }
 
   function monthDoneCount(gameId) {
     const d = calState.data[gameId] || {};
     let n = 0;
-    for (const k of Object.keys(d)) if (d[k].status === 'ok') n++;
+    for (const k of Object.keys(d)) if (k <= todayDs() && d[k].status === 'ok') n++;
     return n;
   }
 
@@ -709,23 +725,26 @@
       const st = data[ds];
       const isToday = ds === dsToday;
       const isFuture = ds > dsToday;
-      let cls = 'cal-cell', mark = '';
+      let cls = 'cal-cell', mark = '', status = '';
       if (!isFuture) {
-        if (st && st.status === 'ok') { cls += ' cal-ok'; mark = '✅'; }
-        else if (st) { cls += ' cal-fail'; mark = '❌'; }
-        else { cls += ' cal-fail cal-nodata'; mark = '❌'; }
+        if (st && st.status === 'ok') { cls += ' cal-ok'; mark = '已签'; status = '当天全部成功'; }
+        else if (st) { cls += ' cal-fail'; mark = '未完'; status = '失败或部分未完成'; }
+        else { cls += ' cal-fail cal-nodata'; mark = '无记录'; status = '当天无签到记录'; }
       } else {
-        cls += ' cal-future';
+        cls += ' cal-future'; status = '尚未到这一天';
       }
       if (isToday) cls += ' cal-today';
-      // 奖励小字并入格子磁贴（上：状态+日期，下：奖励两行），不再悬空在格子外
       const rewards = (st && Array.isArray(st.rewards)) ? st.rewards : [];
       const hasReward = !isFuture && rewards.length > 0;
       const tip = hasReward ? '🎁 ' + rewards.join('\n🎁 ') + '\n' : '';
-      const rewardText = hasReward ? '<div class="cal-reward-text">' + esc(rewards.join('、')) + '</div>' : '';
-      const top = isFuture ? String(d) : '<div class="cal-celltop">' + mark + '<span class="cal-daynum">' + d + '</span></div>';
-      html += '<div class="cal-day"' + (isFuture ? '' : ' data-clickable="1" data-game="' + esc(gameId) + '" data-date="' + ds + '" title="' + esc(tip + '点击查看当天明细') + '"') + '>' +
-        '<div class="' + cls + '">' + top + rewardText + '</div></div>';
+      const rewardText = hasReward ? '<span class="cal-reward-text">' + esc(rewards.join('、')) + '</span>' : '';
+      const top = '<span class="cal-celltop"><span class="cal-daynum">' + d + (isToday ? '<small class="cal-today-label">今天</small>' : '') + '</span><span class="cal-day-status">' + mark + '</span></span>';
+      const selected = ds === calState.detailDate;
+      html += '<button type="button" class="cal-day' + (selected ? ' is-selected' : '') + '"' + (isFuture ? ' disabled' : ' data-clickable="1"') +
+        ' data-game="' + esc(gameId) + '" data-date="' + ds + '" aria-pressed="' + selected + '"' +
+        (isToday ? ' aria-current="date"' : '') + ' title="' + esc(ds + ' · ' + status + '\n' + tip + (isFuture ? '' : '点击查看当天明细')) + '"' +
+        ' aria-label="' + esc(ds + '，' + status + (hasReward ? '，' + rewards.join('、') : '')) + '">' +
+        '<span class="' + cls + '">' + top + rewardText + '</span></button>';
     }
     return html;
   }
@@ -734,40 +753,59 @@
     const box = $('#cal-cards');
     if (!box) return;
     $('#cal-title').textContent = calState.year + '年' + calState.month + '月';
-    // 卡片列数交给 CSS 自适应（每卡≥760px 才并排），保证格子下奖励小字完整显示
-    box.className = 'cal-cards';
-    box.innerHTML = state.games.map((g) => {
+    const game = state.games.find((g) => g.id === calState.gameId) || state.games[0];
+    if (!game) return;
+    calState.gameId = game.id;
+    const prefix = calState.year + '-' + calPad(calState.month) + '-';
+    const lastDay = prefix + calPad(new Date(calState.year, calState.month, 0).getDate());
+    if (!calState.detailDate.startsWith(prefix)) calState.detailDate = prefix + '01' > todayDs() ? '' : (lastDay < todayDs() ? lastDay : todayDs());
+    $('#cal-games').innerHTML = state.games.map((g) => {
       const okCount = monthDoneCount(g.id);
-      return '<div class="cal-card">' +
-        '<div class="cal-card-head">' +
-          '<span class="cal-card-title">' + gameIcon(g) + ' ' + esc(g.name) + '</span>' +
-          '<span class="cal-card-badge">' + okCount + ' / ' + new Date(calState.year, calState.month, 0).getDate() + ' 天</span>' +
-        '</div>' +
-        '<div class="cal-grid mini">' + buildMiniCalendar(g.id) + '</div>' +
-      '</div>';
+      const selected = g.id === game.id;
+      return '<button type="button" class="cal-game-tab' + (selected ? ' selected' : '') + '" data-cal-game="' + esc(g.id) + '" aria-pressed="' + selected + '">' +
+        '<span class="cal-game-icon" aria-hidden="true">' + esc(gameIcon(g)) + '</span>' +
+        '<span class="cal-game-copy"><strong>' + esc(g.name) + '</strong><small>' + esc(g.community) + (calState.error ? ' · 记录未读取' : ' · 已完成 ' + okCount + ' 天') + '</small></span>' +
+        '<span class="cal-game-check" aria-hidden="true">' + (selected ? '✓' : '') + '</span></button>';
     }).join('');
-
-    if (calState.detailDate && calState.detailGame) showDayDetail(calState.detailGame, calState.detailDate);
+    box.innerHTML = '<div class="cal-card" data-game="' + esc(game.id) + '">' +
+      (calState.error ? '<div class="empty-list">读取失败：' + esc(calState.error) + '</div>' : '<div class="cal-grid mini">' + buildMiniCalendar(game.id) + '</div>') + '</div>';
+    const detail = $('#cal-day-detail');
+    detail.classList.remove('hidden');
+    if (calState.detailDate && !calState.error) showDayDetail(game.id, calState.detailDate);
+    else {
+      calState.detailRequest++;
+      detail.innerHTML = '<div class="cal-detail-head">日期明细</div><div class="cal-detail-empty">' + (calState.error ? '记录读取失败，暂不显示日期结果。' : '这个月还没开始，回到今天查看签到结果。') + '</div>';
+    }
   }
 
   async function showDayDetail(gameId, ds) {
+    const request = ++calState.detailRequest;
     calState.detailGame = gameId;
     calState.detailDate = ds;
     const box = $('#cal-day-detail');
     if (!box) return;
     box.classList.remove('hidden');
     const g = state.games.find((x) => x.id === gameId);
+    const head = '<div class="cal-detail-head"><span class="cal-detail-label">账号明细</span><h3>' + esc(ds) + '</h3><p>' + esc(g ? g.name : gameId) + '</p></div>';
+    box.innerHTML = head + '<div class="cal-detail-empty">正在读取记录…</div>';
+    $$('.cal-day[data-clickable]').forEach((day) => {
+      const selected = day.dataset.game === gameId && day.dataset.date === ds;
+      day.classList.toggle('is-selected', selected);
+      day.setAttribute('aria-pressed', String(selected));
+    });
     const r = await invoke('results:history', { date: ds });
+    if (request !== calState.detailRequest || gameId !== calState.gameId) return;
     const results = (r.ok && r.results) ? r.results : {};
     const list = results[gameId] || [];
-    box.innerHTML = '<div class="cal-detail-head">' + (g ? gameIcon(g) + ' ' + esc(g.name) : esc(gameId)) + ' · ' + esc(ds) + ' 账号明细</div>';
-    if (!list.length) { box.innerHTML += '<div class="result-empty">当天无记录（无结果文件）</div>'; return; }
+    box.innerHTML = head;
+    if (!r.ok) { box.innerHTML += '<div class="cal-detail-empty">读取失败：' + esc(r.error || '请稍后重试') + '</div>'; return; }
+    if (!list.length) { box.innerHTML += '<div class="cal-detail-empty">当天还没有签到记录。<br>可到「账号管理」查看账号状态或立即签到。</div>'; return; }
     box.innerHTML += list.map((it) =>
       '<div class="result-row">' +
         '<span class="result-badge">' + (it.ok ? '✅' : '❌') + '</span>' +
-        '<span class="result-title">' + esc(it.nickname || '') + ' — ' + esc(it.title || '') + '</span>' +
+        '<div class="result-main"><strong>' + esc(it.nickname || '未命名账号') + '</strong><p>' + esc(it.title || '') + '</p>' +
         (it.reward ? '<span class="result-reward">' + esc(it.reward) + '</span>' : '') +
-        '<span class="result-time">' + esc(fmtTime(it.at)) + '</span>' +
+        (it.at ? '<span class="result-time">' + esc(fmtTime(it.at)) + '</span>' : '') + '</div>' +
       '</div>').join('');
   }
 
@@ -775,17 +813,15 @@
     let m = calState.month + delta, y = calState.year;
     if (m < 1) { m = 12; y--; }
     if (m > 12) { m = 1; y++; }
-    calState.year = y; calState.month = m; calState.detailDate = ''; calState.detailGame = '';
-    await loadCalendarData();
-    renderCalendar();
+    calState.year = y; calState.month = m; calState.detailDate = ''; calState.detailRequest++;
+    if (await loadCalendarData()) renderCalendar();
   }
 
   async function calGoToday() {
     const now = new Date();
     calState.year = now.getFullYear(); calState.month = now.getMonth() + 1;
-    calState.detailDate = ''; calState.detailGame = '';
-    await loadCalendarData();
-    renderCalendar();
+    calState.detailDate = ''; calState.detailRequest++;
+    if (await loadCalendarData()) renderCalendar();
   }
 
   async function loadRecentLogs() {
@@ -811,7 +847,7 @@
     div.innerHTML = '<span class="log-time">' + esc(fmtTime(time)) + '</span>' + esc(m);
     div.className = 'log-line' + cls;
     stream.appendChild(div);
-    // 日志流 DOM 上限 500 条（长期常驻降内存；点开日历/日志仍自动重拉，不丢信息）
+    // v2.7.3：日志流 DOM 上限 500 条（长期常驻降内存；点开日历/日志仍自动重拉，不丢信息）
     const max = 500;
     while (stream.childNodes.length > max) stream.removeChild(stream.firstChild);
     const auto = $('#log-autoscroll');
@@ -830,7 +866,7 @@
     { channel: 'pushplus', key: 'token', inputId: 'notify-pushplus' },
     { channel: 'wecom', key: 'webhook', inputId: 'notify-wecom' },
     { channel: 'email', key: 'pass', inputId: 'notify-email-pass' },
-    { channel: 'qqbot', key: 'appSecret', inputId: 'notify-qqbot-secret' },
+    { channel: 'qqbot', key: 'appSecret', inputId: 'notify-qqbot-secret' },   // v2.9.0
   ];
   const loadedSecrets = {};   // channel.key -> 加载时的掩码值（用于判断是否改动）
 
@@ -851,7 +887,7 @@
     $('#notify-email-port').value = em.smtpPort || '';
     $('#notify-email-user').value = em.user || '';
     $('#notify-email-to').value = em.to || '';
-    // QQ 机器人回显（appSecret 由 SECRET_FIELDS 通用掩码回显）
+    // v2.9.0：QQ 机器人回显（appSecret 由 SECRET_FIELDS 通用掩码回显）
     const q = n.qqbot || {};
     $('#notify-qqbot-appid').value = q.appId || '';
     refreshQqbotStatus();
@@ -874,7 +910,7 @@
         pass: null,
         to: $('#notify-email-to').value.trim(),
       },
-      qqbot: { appId: $('#notify-qqbot-appid').value.trim(), appSecret: null },   // openid 由绑定流程写入
+      qqbot: { appId: $('#notify-qqbot-appid').value.trim(), appSecret: null },   // v2.9.0（openid 由绑定流程写入）
     };
     for (const f of SECRET_FIELDS) {
       const input = $('#' + f.inputId).value;
@@ -908,7 +944,7 @@
     else toast(channel + ' 测试失败：' + (r.error || '发送失败'), 'error');
   }
 
-  /* ---------- QQ 机器人：绑定轮询与状态直显 ---------- */
+  /* ---------- QQ 机器人（v2.9.0）：绑定轮询与状态直显 ---------- */
   let qqBindPollTimer = null;
 
   function renderQqbotStatus(r) {
@@ -999,8 +1035,9 @@
   /* 登录方式全部由插件 loginMethods 元数据驱动（t4/t5/t6）；不写死任何游戏 */
 
   /* 登录方式标签兜底表：仅在插件没给 label 时使用。
- * 注意：不要用它覆盖插件自己的 label——插件作者最清楚自己那条方式是什么。
- * 本表若优先，会把插件的实际方式显示成一个与实现不符的旧标签。 */
+   * 注意：不要用它覆盖插件自己的 label——插件作者最清楚自己那条方式是什么。
+   * 历史上这里让 KIND_LABEL 优先，结果 web 被显示成「扫码登录（网页窗口）」，
+   * 而三个官方插件都没有扫码方式，界面等于指向一个不存在的功能（2026-10-04 修）。 */
   const KIND_LABEL = {
     sms: '短信验证码',
     web: '网页登录',
@@ -1062,7 +1099,8 @@
     box.classList.remove('hidden');
   }
 
-  /* 动态登录面板模板（web/gui）：面板按需动态创建，元素 id 与既有面板保持一致。 */
+  /* 动态登录面板模板（web/gui）：与旧静态面板 DOM 一致，保证既有元素 id 不变；面板按需动态创建。
+   * password 与 qr 两个模板已于 2026-10-05 移除——没有任何插件声明这两种 kind，面板从不创建。 */
   const PANEL_HTML = {
     web: `
         <p class="panel-hint" id="dlg-web-hint">将打开官方登录页，请在窗口中按官方流程完成登录。</p>
@@ -1099,7 +1137,7 @@
     return div;
   }
 
-  /* 动态面板事件绑定：面板按需创建，事件在创建时绑定（创建一次即永久有效） */
+  /* 动态面板事件绑定：原先在 bindStaticEvents 静态绑定，面板改为按需创建后移到创建时绑定（创建一次即永久） */
   function bindDynamicPanelEvents(kind, panel) {
     if (kind === 'web') {
       $('#dlg-web-open').addEventListener('click', onWebOpen);
@@ -1163,7 +1201,7 @@
     }
     if ($('#panel-gui')) {
       $('#dlg-gui-status').textContent = ''; $('#dlg-gui-status').className = 'web-status';
-      $('#dlg-gui-hint').textContent = '将在默认浏览器中打开「塔吉多·异环 登录界面」（密码/短信/粘贴 token 三方式）；登录成功后账号自动绑定到本应用。';
+      $('#dlg-gui-hint').textContent = '将在默认浏览器中打开本地登录页（短信验证码 / 粘贴 token）；登录成功后账号自动绑定到本应用。';
       $('#dlg-gui-open').disabled = false;
       $('#dlg-gui-open').textContent = '打开浏览器登录';
     }
@@ -1176,7 +1214,9 @@
     $('#login-modal').classList.remove('hidden');
 
     // 若插件把 kind:'gui'（浏览器登录）排在第一位，则点「添加账号」时自动帮用户打开浏览器登录页。
-    // 注：三个官方插件都没把 gui 排在第一位，所以这段目前不会触发；保留它是为第三方插件服务。
+    // 注：2026-10-04 起三个官方插件都不再把 gui 排第一（异环改为短信领衔），所以这段目前不会触发；
+    // 保留是为第三方插件服务。此处旧注释写的「应用内短信收不到是官方风控、浏览器登录可绕过」是误诊，
+    // 已推翻——依据见 脚本/异环/index.js 的 loginMethods 注释与 core/browser-login.js 头部。
     const firstAvail = dlg.methods.find((m) => !m.disabled);
     if (firstAvail && firstAvail.kind === 'gui' && !dlg.gui.autoOpened) {
       dlg.gui.autoOpened = true;
@@ -1259,7 +1299,7 @@
     if (!r.ok) { setDlgMsg(r.error || '验证码发送失败', 'err'); btn.disabled = false; btn.textContent = '发送验证码'; return; }
     if (r.needCaptcha) {
       // 极验/人机验证：本应用内无法完成（官方控件需渲染在页面里）。
-      // 不要提示「改用扫码登录」——三个官方插件都没有扫码方式，那是条死路。
+      // 不要提示「改用扫码登录」——三个官方插件都没有扫码方式，那是条死路（2026-10-04 修）。
       // 可行的绕法：用手机上的官方 App 给同一手机号申请验证码，收到后把码填回本应用。
       const tip = '⚠️ 需要人机验证（极验），本应用内无法完成。请改用手机上的官方 App 给同一手机号发送验证码，收到后把 6 位验证码填回这里登录；或改用本游戏的其它登录方式。';
       setDlgMsg(tip, 'warn');
@@ -1472,6 +1512,7 @@
   async function onManageToolbar(action) {
     if (action === 'manage-import') {
       // games:add 不带 dir 时会弹系统文件夹选择框；选中插件文件夹后自动拷进脚本目录、校验并即时生效。
+      // 该通道此前只有 IPC 没有界面入口（文档却让用户点「导入脚本」），2026-10-05 补上按钮。
       const r = await invoke('games:add', {});
       if (r.ok) toast('已导入游戏脚本：' + ((r.game && r.game.name) || r.gameId || ''), 'success');
       else if (!r.canceled) toast(r.error || '导入失败', 'err');   // 用户取消选择框不报错
@@ -1497,7 +1538,7 @@
     appendLogLine(ev.time, ev.msg);
   }
 
-  // 托盘隐藏/显示 —— 隐藏时清空日志流 DOM 降低常驻内存；显示时重拉最近日志
+  // v2.7.3：托盘隐藏/显示 —— 隐藏时清空日志流 DOM 降低常驻内存；显示时重拉最近日志
   // 注：窗口首次显示也会触发 show 事件，用 state._hiddenOnce 标记只在「真隐藏过」后重拉，避免启动时多余请求
   function handleVisibilityEvent(ev) {
     if (!ev) return;
@@ -1537,7 +1578,7 @@
       e.target.disabled = true;
       const r = await invoke('run:all', {});
       e.target.disabled = false;
-      if (r.ok) toast('全部签到执行完成（结果见日志页）', 'success');
+      if (r.ok) toast('全部签到执行完成（结果见签到日历）', 'success');
       else toast('执行失败：' + (r.error || ''), 'error');
       refreshAccounts();
     });
@@ -1557,7 +1598,7 @@
       else if (t.dataset.role === 'account-time') onAccountTimeChange(t);
     });
 
-    // 时间即改即存
+    // 时间即改即存（v2.6.0）
     $('#set-default-time').addEventListener('change', onDefaultTimeChange);
     $('#set-autostart').addEventListener('change', (e) => onAutostartToggle(e.target.checked));
     $('#set-systask').addEventListener('change', (e) => onSystaskToggle(e.target.checked));
@@ -1565,17 +1606,30 @@
     const cbEl = $('#set-close-behavior');
     if (cbEl) cbEl.addEventListener('change', (e) => onCloseBehaviorChange(e.target.value));
 
-    // 签到日历
+    // 签到日历：游戏切换、月份导航与日期明细
     $('#cal-prev').addEventListener('click', () => moveCalMonth(-1));
     $('#cal-next').addEventListener('click', () => moveCalMonth(1));
     $('#cal-today').addEventListener('click', calGoToday);
+    $('#cal-games').addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-cal-game]');
+      if (!tab) return;
+      calState.gameId = tab.dataset.calGame;
+      renderCalendar();
+      const current = $$('#cal-games button').find((b) => b.dataset.calGame === calState.gameId);
+      if (current) current.focus({ preventScroll: true });
+    });
     // 点任意日历格子 → 显示该游戏该日明细
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
       const cell = e.target.closest('.cal-day[data-clickable]');
       if (cell) {
         const g = cell.dataset.game;
         const d = cell.dataset.date;
-        if (g && d) showDayDetail(g, d);
+        if (g && d) {
+          await showDayDetail(g, d);
+          if (calState.gameId === g && calState.detailDate === d && window.matchMedia('(max-width: 1279px)').matches) {
+            $('#cal-day-detail').scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+          }
+        }
       }
     });
     $('#log-autoscroll').addEventListener('change', () => { if ($('#log-autoscroll').checked) scrollLogToBottom(); });
@@ -1583,7 +1637,7 @@
     // 通知设置页
     $('#btn-save-notify').addEventListener('click', saveNotify);
     $$('.btn-test').forEach((b) => b.addEventListener('click', () => testNotify(b.dataset.channel)));
-    // QQ 机器人绑定
+    // v2.9.0：QQ 机器人绑定
     $('#btn-qqbot-bind').addEventListener('click', bindQqbot);
     $('#btn-qqbot-cancel').addEventListener('click', async () => {
       await invoke('qqbot:bind:cancel');

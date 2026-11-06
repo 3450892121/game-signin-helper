@@ -3,23 +3,23 @@
  * 阶段 0 冒烟测试
  *
  * 用法：
- * node scripts/smoke.js # 只读级：验证模块可加载 + 现有凭据有效
- * node scripts/smoke.js --login # 登录接口无副作用部分（生成二维码/申请验证任务/设备指纹）
- * node scripts/smoke.js --full # 完整级：kuro/mihoyo 真实 signin（今天已签过=无副作用）
+ *   node scripts/smoke.js            # 只读级：验证模块可加载 + 现有凭据有效
+ *   node scripts/smoke.js --login    # 登录接口无副作用部分（生成二维码/申请验证任务/设备指纹）
+ *   node scripts/smoke.js --full     # 完整级：kuro/mihoyo 真实 signin（今天已签过=无副作用）
  *
  * 安全设计（不破坏用户现有脚本）：
- * - 不向任何真实用户发短信：发码可达性探测一律用未分配号段 13800000000，且只判「接口是否可达」，
- * 不校验业务 code（注意：这仍是一次真实的服务器请求，会消耗该 IP/指纹的发码配额）
- * - 塔吉多只做只读检查（不触发 refreshToken 轮换，避免影响明早 schtasks）
- * - mihoyo 的 SToken 续期是查询性质，无服务器端副作用
- * - 所有测试都不写任何配置文件
+ *   - 不向任何真实用户发短信：发码可达性探测一律用未分配号段 13800000000，且只判「接口是否可达」，
+ *     不校验业务 code（注意：这仍是一次真实的服务器请求，会消耗该 IP/指纹的发码配额）
+ *   - 塔吉多只做只读检查（不触发 refreshToken 轮换，避免影响明早 schtasks）
+ *   - mihoyo 的 SToken 续期是查询性质，无服务器端副作用
+ *   - 所有测试都不写任何配置文件
  */
 
 const path = require('path');
 
 // 真实凭据实校改为可选项：v2 起凭据存于应用加密存储（DPAPI），Node 侧无法解密。
 // 需要凭据实校时用环境变量指向同构 JSON（旧 config.json 与 credentials 字段同构）：
-// SMOKE_KURO_CONFIG / SMOKE_MIHOYO_CONFIG / SMOKE_TAJIDUO_CONFIG
+//   SMOKE_KURO_CONFIG / SMOKE_MIHOYO_CONFIG / SMOKE_TAJIDUO_CONFIG
 const CONFIG_MAP = {
   kuro: process.env.SMOKE_KURO_CONFIG || '',
   mihoyo: process.env.SMOKE_MIHOYO_CONFIG || '',
@@ -123,7 +123,8 @@ async function registryCheck() {
   const bad = loaded.errors.find(e => e.idHint === 't4-bad');
   check('非法插件被拒绝且不拖垮其它（loadErrors 记录）', !!bad, bad ? ('errors=' + bad.errors.join('|')) : 't4-bad 未被拒绝/未记录');
   check('get()/has()/getLoginMethod 可用', !!reg.get('t4-test') && !reg.has('no-such') && !!reg.getLoginMethod('t4-test', 'paste') && !reg.getLoginMethod('t4-test', 'qr'));
-  check('guessKind 兜底', registryMod.guessKind(['code']) === 'sms' && registryMod.guessKind(['password']) === 'password' && registryMod.guessKind(['web']) === 'web' && registryMod.guessKind(['token']) === 'paste');
+  check('guessKind 当前四种登录方式', registryMod.guessKind(['code']) === 'sms' && registryMod.guessKind(['gui']) === 'gui' && registryMod.guessKind(['web']) === 'web' && registryMod.guessKind(['token']) === 'paste');
+  check('已移除的密码/扫码需求按默认粘贴处理', registryMod.guessKind(['password']) === 'paste' && registryMod.guessKind(['qr']) === 'paste');
   const removed = await reg.removePlugin('t4-test');
   check('removePlugin 移除用户插件（onRemove 钩子+删目录）', !!(removed.removed && removed.hook === 'ok' && removed.dirRemoved), JSON.stringify(removed));
   check('移除后 get 返回 null', !reg.has('t4-test'));

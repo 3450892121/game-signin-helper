@@ -6,20 +6,45 @@
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
 <title>游戏社区签到助手</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="calendar.css">
 </head>
 <body>
 <div id="app">
 
+  <aside class="sidebar" aria-label="应用导航">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">🎮</span>
+      <div class="brand-copy"><span>游戏社区</span><strong>签到助手</strong></div>
+    </div>
+    <div class="nav-caption">工作台</div>
+    <nav id="tabs" class="tabs" aria-label="主要页面">
+      <button class="tab active" data-page="accounts" aria-current="page">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v2"/></svg>
+        <span>账号管理</span>
+      </button>
+      <button class="tab" data-page="calendar">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-13 5 3 3 5-5"/></svg>
+        <span>签到日历</span>
+      </button>
+      <button class="tab" data-page="notify">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-12 9h12m-8 3a2 2 0 0 0 4 0"/></svg>
+        <span>通知设置</span>
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="sidebar-caption">版本与关于</span>
+      <button id="app-version" class="app-version" title="查看版本与关于信息"></button>
+    </div>
+  </aside>
+
+  <div class="workspace">
   <!-- ==================== 顶栏 ==================== -->
   <header class="topbar">
-    <div class="brand">🎮 游戏社区签到助手 <span id="app-version" class="app-version" title="点击查看版本与关于信息"></span></div>
-    <nav id="tabs" class="tabs">
-      <button class="tab active" data-page="accounts">账号管理</button>
-      <button class="tab" data-page="calendar">签到日历</button>
-      <button class="tab" data-page="notify">通知设置</button>
-    </nav>
+    <div class="schedule-summary">
+      <span class="topbar-label">自动签到安排</span>
+      <span id="next-trigger" class="next-trigger" tabindex="0" title="下次定时签到时间（启用游戏+启用账号，账号时间>游戏时间>全局时间）"></span>
+    </div>
     <div class="topbar-right">
-      <span id="next-trigger" class="next-trigger" title="下次定时签到时间（启用游戏+启用账号，账号时间>游戏时间>全局时间）"></span>
       <button id="btn-run-all" class="btn primary btn-run-all" title="立即签到全部启用账号（不受设定时间影响）">立即签到全部</button>
     </div>
   </header>
@@ -28,11 +53,13 @@
 
   <main id="main">
 
-    <!-- ==================== 账号管理（含时间设置） ==================== -->
+    <!-- ==================== 账号管理（含时间设置，v2.6.0 合并调度页） ==================== -->
     <section id="page-accounts" class="page active">
       <div class="page-head">
-        <h2>账号管理</h2>
-        <p class="page-desc">绑定游戏账号，并为每个游戏/账号设置签到时间；全局统一时间是兜底时间。</p>
+        <div class="page-heading">
+          <h2>账号管理</h2>
+          <p class="page-desc">管理游戏账号与签到时间，让每天的签到井井有条。</p>
+        </div>
         <div class="page-head-actions">
           <button id="btn-manage-games" class="btn secondary">管理游戏脚本</button>
         </div>
@@ -41,7 +68,8 @@
       <!-- 签到设置面板：全局时间 + 系统快捷开关（两列合并，不空旷） -->
       <div class="panel panel-global">
         <div class="panel-head">
-          <h3>⚙️ 签到设置<span class="tip" data-tip="全局统一时间是所有游戏/账号的兜底时间，必须最晚——这样应用没开时，系统任务到点能把当天该签的账号全部补上。系统快捷开关都在这里，不用往下翻。">ⓘ</span></h3>
+          <h3>⚙️ 签到设置<span class="tip" tabindex="0" title="全局统一时间是所有游戏/账号的兜底时间，必须最晚；开启系统任务后，应用没开时到点能拉起补签。" data-tip="全局统一时间是所有游戏/账号的兜底时间，必须最晚；开启系统任务后，应用没开时到点能拉起补签。">ⓘ</span></h3>
+          <span class="autosave-note">修改后自动保存</span>
         </div>
         <div class="global-grid">
           <div class="global-col">
@@ -52,7 +80,7 @@
             <div class="form-hint" id="global-time-hint">未单独设置的游戏/账号都用这个时间</div>
             <div id="global-time-msg" class="form-msg"></div>
           </div>
-          <div class="global-col">
+          <div class="global-col system-preferences">
             <div class="quick-row">
               <label class="switch" title="登录 Windows 后自动启动并后台常驻">
                 <input type="checkbox" id="set-autostart">
@@ -72,35 +100,45 @@
             </div>
           </div>
         </div>
-        <div class="sys-status-row">
-          <span id="timer-mode-hint" class="form-hint"></span>
-          <span id="systask-msg" class="form-msg msg-end"></span>
-        </div>
-        <div id="systask-status" class="systask-status"></div>
+        <span id="systask-msg" class="form-msg system-feedback" role="status"></span>
+        <details class="system-details">
+          <summary>查看定时与系统任务状态</summary>
+          <div class="sys-status-row"><span id="timer-mode-hint" class="form-hint"></span></div>
+          <div id="systask-status" class="systask-status"></div>
+        </details>
       </div>
 
       <div id="game-cards" class="game-cards"></div>
     </section>
 
-    <!-- ==================== 签到日历 ==================== -->
+    <!-- ==================== 签到日历（v2.6.0 由「日志」改造） ==================== -->
     <section id="page-calendar" class="page">
       <div class="page-head">
-        <h2>签到日历</h2>
-        <p class="page-desc">按游戏查看每天签到结果：✅ 当天全部成功；❌ 失败 / 部分未完成 / 无记录（没跑或电脑没开也算失败）。</p>
-      </div>
-      <div class="cal-toolbar">
-        <button id="cal-prev" class="btn secondary">◀ 上月</button>
-        <span id="cal-title" class="cal-title"></span>
-        <button id="cal-next" class="btn secondary">下月 ▶</button>
-        <button id="cal-today" class="btn primary">回到今天</button>
-        <div class="cal-legend">
-          <span>✅ 全成功</span>
-          <span>❌ 失败 / 无记录</span>
-          <span class="lg-today">今天</span>
+        <div class="page-heading">
+          <h2>签到日历</h2>
+          <p class="page-desc">按游戏查看每天签到结果，点击日期查看账号明细。</p>
         </div>
       </div>
-      <div id="cal-cards" class="cal-cards"></div>
-      <div id="cal-day-detail" class="cal-day-detail hidden"></div>
+      <div id="cal-games" class="cal-game-tabs" role="group" aria-label="选择日历游戏"></div>
+      <div class="cal-layout">
+        <div class="cal-month-panel">
+          <div class="cal-toolbar">
+            <div class="cal-month-nav">
+              <button id="cal-prev" class="btn cal-arrow" aria-label="上个月" title="上个月">‹</button>
+              <span id="cal-title" class="cal-title" aria-live="polite"></span>
+              <button id="cal-next" class="btn cal-arrow" aria-label="下个月" title="下个月">›</button>
+            </div>
+            <button id="cal-today" class="btn secondary">回到今天</button>
+          </div>
+          <div id="cal-cards" class="cal-cards"></div>
+          <div class="cal-legend">
+            <span><i class="legend-dot legend-ok"></i>全部成功</span>
+            <span title="包括有账号失败、部分未完成和当天无记录"><i class="legend-dot legend-fail"></i>失败 / 未完成 / 无记录</span>
+            <span><i class="legend-dot legend-today"></i>今天</span>
+          </div>
+        </div>
+        <div id="cal-day-detail" class="cal-day-detail" aria-live="polite"></div>
+      </div>
       <details class="panel details-panel">
         <summary>📄 运行日志（排查问题用）</summary>
         <div class="details-body">
@@ -115,11 +153,14 @@
     <!-- ==================== 通知设置 ==================== -->
     <section id="page-notify" class="page">
       <div class="page-head">
-        <h2>通知设置</h2>
-        <p class="page-desc">任一游戏签到失败时通过以下渠道推送告警；留空即关闭该渠道。密钥仅以掩码显示，不会回显明文。</p>
+        <div class="page-heading">
+          <h2>通知设置</h2>
+          <p class="page-desc">分别配置失败告警和每日汇总。密钥以掩码显示，留空即关闭对应渠道。</p>
+        </div>
       </div>
-      <div class="panel">
-        <div class="channel-row">
+      <div class="notify-section-head"><h3>失败即时提醒</h3><span>按需配置，留空关闭</span></div>
+      <div class="notify-grid">
+        <div class="channel-row panel">
           <div class="channel-name">🔔 Server酱 <span class="channel-tag">serverchan</span></div>
           <div class="form-row">
             <label class="form-label" for="notify-serverchan">SendKey（密钥）</label>
@@ -127,7 +168,7 @@
             <button class="btn secondary btn-test" data-channel="serverchan">发送测试</button>
           </div>
         </div>
-        <div class="channel-row">
+        <div class="channel-row panel">
           <div class="channel-name">📮 PushPlus <span class="channel-tag">pushplus</span></div>
           <div class="form-row">
             <label class="form-label" for="notify-pushplus">Token（令牌）</label>
@@ -140,7 +181,7 @@
             <button class="btn secondary btn-test" data-channel="pushplus">发送测试</button>
           </div>
         </div>
-        <div class="channel-row">
+        <div class="channel-row panel">
           <div class="channel-name">💬 企业微信 <span class="channel-tag">wecom</span></div>
           <div class="form-row">
             <label class="form-label" for="notify-wecom">Webhook（回调地址）</label>
@@ -148,7 +189,7 @@
             <button class="btn secondary btn-test" data-channel="wecom">发送测试</button>
           </div>
         </div>
-        <div class="channel-row">
+        <div class="channel-row panel channel-email">
           <div class="channel-name">📧 邮箱（SMTP） <span class="channel-tag">email</span></div>
           <div class="form-row">
             <label class="form-label" for="notify-email-host">SMTP 服务器</label>
@@ -172,7 +213,9 @@
             <button class="btn secondary btn-test" data-channel="email">发送测试</button>
           </div>
         </div>
-        <div class="channel-row">
+      </div>
+      <div class="notify-section-head"><h3>每日签到汇总</h3><span>与失败即时提醒独立配置</span></div>
+      <div class="channel-row panel channel-qqbot">
           <div class="channel-name">🤖 QQ 机器人 <span class="channel-tag">qqbot</span></div>
           <div class="form-row">
             <label class="form-label" for="notify-qqbot-appid">AppID</label>
@@ -193,16 +236,16 @@
           <div class="form-hint" id="notify-qqbot-time"></div>
           <div class="form-hint">绑定方法：点「开始绑定」后，软件会显示一个 6 位绑定码；3 分钟内在 QQ 里把该码发给机器人即可完成绑定。签到失败仍走其它各渠道的即时告警；QQ 只收每天一条汇总日报（失败项一并列出）。</div>
         </div>
-        <div class="form-actions">
+      <div class="form-actions notify-savebar">
           <button id="btn-save-notify" class="btn primary">保存通知设置</button>
           <span id="notify-msg" class="form-msg"></span>
         </div>
-      </div>
     </section>
 
   </main>
 
   <footer id="footer" class="footer"></footer>
+  </div>
 </div>
 
 <!-- ==================== 登录弹窗 ==================== -->
@@ -232,7 +275,7 @@
         <button id="dlg-sms-login" class="btn primary block">登录</button>
       </div>
 
-      <!-- 动态面板容器：password/qr/web 面板由 renderer/app.js 按需创建 -->
+      <!-- 动态面板容器：web/gui 面板由 renderer/app.js 按需创建 -->
       <div id="dlg-dynamic-panels"></div>
 
       <!-- 粘贴凭据 -->

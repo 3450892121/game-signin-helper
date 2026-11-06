@@ -1,20 +1,19 @@
 'use strict';
 /**
- * QQ 机器人通知模块：主动消息走 HTTPS，无常驻长连接、不需公网服务器
- * （仅绑定 openid 那一步临时连一次 WebSocket，拿到即断）。
+ * QQ 机器人通知模块（v2.9.0，方案见 docs/方案-QQ机器人日报通知.md）
  *
  * 零依赖：Node 内置 https + WebSocket（Electron 44 自带 Node 24，已实测内置）。
  * 本模块不 require electron，可在纯 Node 下单测。
  *
  * 能力：
- * - fetchToken：AppID+AppSecret → access_token（7200s，进程内缓存、提前刷新）
- * - sendText ：向已绑定用户发单聊文本（主动消息；日报/测试）
- * - startBind ：临时 WebSocket 连接接收一条用户消息取 user_openid（仅绑定时连接，用完即断）
- * - composeDailyText / reportSendTime / explainCode：纯函数（可单测）
+ *   - fetchToken：AppID+AppSecret → access_token（7200s，进程内缓存、提前刷新）
+ *   - sendText  ：向已绑定用户发单聊文本（主动消息；日报/测试）
+ *   - startBind ：临时 WebSocket 连接接收一条用户消息取 user_openid（仅绑定时连接，用完即断）
+ *   - composeDailyText / reportSendTime / explainCode：纯函数（可单测）
  *
  * 设计原则：
- * - 任何网络失败只返回 { ok:false, error }，不抛给调用方（绝不影响签到主流程）
- * - 密钥只进请求头/请求体，不写入日志
+ *   - 任何网络失败只返回 { ok:false, error }，不抛给调用方（绝不影响签到主流程）
+ *   - 密钥只进请求头/请求体，不写入日志
  */
 
 const https = require('https');
@@ -132,8 +131,8 @@ function cleanTitle(t) {
 }
 
 /**
- * @param {object} results logger.loadTodayResults 结构：{ [gameId]: [ {accountId, nickname, ok, title, reward, at} ] }
- * @param {object} meta { dateLabel, untilLabel, games: [ { id, name, community, accounts: [ {id, nickname} ] } ] }
+ * @param {object} results logger.loadTodayResults() 结构：{ [gameId]: [ {accountId, nickname, ok, title, reward, at} ] }
+ * @param {object} meta    { dateLabel, untilLabel, games: [ { id, name, community, accounts: [ {id, nickname} ] } ] }
  */
 function composeDailyText(results, meta) {
   meta = meta || {};
@@ -273,12 +272,12 @@ function create(opts) {
   }
 
   /**
- * 开始绑定：连临时 WebSocket 等一条**包含专属绑定码**的用户消息取 user_openid。
- * 不含绑定码的消息一律忽略（防陌生人/误发触发误绑）。
- * @param {object} cfg { appId, appSecret }
- * @param {function} [onOpenid] 收到 openid 时回调（由调用方持久化）
- * @returns {{ok:boolean, code?:string, error?:string}}
- */
+   * 开始绑定：连临时 WebSocket 等一条**包含专属绑定码**的用户消息取 user_openid。
+   * 不含绑定码的消息一律忽略（防陌生人/误发触发误绑）。
+   * @param {object} cfg { appId, appSecret }
+   * @param {function} [onOpenid] 收到 openid 时回调（由调用方持久化）
+   * @returns {{ok:boolean, code?:string, error?:string}}
+   */
   function startBind(cfg, onOpenid) {
     cfg = cfg || {};
     if (typeof WebSocket === 'undefined') {

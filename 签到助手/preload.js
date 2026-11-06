@@ -2,11 +2,11 @@
 /**
  * 游戏社区签到助手 —— 预加载桥（contextBridge 白名单）
  *
- * 安全约束（安全基线）：
- * - 渲染进程零 Node 权限（sandbox + contextIsolation + nodeIntegration:false）
- * - 只暴露 window.app 上的白名单方法，每个方法内部仅调用固定 IPC 通道
- * - 不暴露 require / process / ipcRenderer 本身 / 任意通道
- * - 事件订阅仅允许白名单事件通道，返回取消订阅函数
+ * 安全约束（docs/阶段2-4需求契约.md S.3）：
+ *  - 渲染进程零 Node 权限（sandbox + contextIsolation + nodeIntegration:false）
+ *  - 只暴露 window.app 上的白名单方法，每个方法内部仅调用固定 IPC 通道
+ *  - 不暴露 require / process / ipcRenderer 本身 / 任意通道
+ *  - 事件订阅仅允许白名单事件通道，返回取消订阅函数
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -23,7 +23,7 @@ const INVOKE_CHANNELS = [
   'logs:recent',
   'results:today', 'results:history', 'calendar:month',
   'notify:test',
-  'qqbot:bind:start', 'qqbot:status', 'qqbot:bind:cancel',   // QQ 机器人绑定（临时 WebSocket）
+  'qqbot:bind:start', 'qqbot:status', 'qqbot:bind:cancel',   // v2.9.0：QQ 机器人绑定（临时 WebSocket）
   'system:autostart:get', 'system:autostart:set',
   'system:task:status', 'system:task:sync',
   'scheduler:info',
@@ -36,9 +36,9 @@ const invoke = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 
 const api = {
   /**
- * 通用白名单调用：invoke(channel, payload) —— channel 必须是白名单通道
- * （与命名空间方法等价，供渲染进程统一封装使用）
- */
+   * 通用白名单调用：invoke(channel, payload) —— channel 必须是白名单通道
+   * （与命名空间方法等价，供渲染进程统一封装使用）
+   */
   invoke(channel, payload) {
     if (!INVOKE_CHANNELS.includes(channel)) {
       return Promise.resolve({ ok: false, error: '非法 IPC 通道：' + channel });
@@ -110,9 +110,9 @@ const api = {
     quit: invoke('app:quit'),
   },
   /**
- * 订阅主进程事件（仅白名单通道）
- * @returns {Function} 取消订阅函数
- */
+   * 订阅主进程事件（仅白名单通道）
+   * @returns {Function} 取消订阅函数
+   */
   on(channel, callback) {
     if (!EVENT_CHANNELS.includes(channel)) {
       throw new Error('非法事件通道：' + channel);

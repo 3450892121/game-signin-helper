@@ -15,6 +15,7 @@ Windows x64 桌面应用（Electron + 原生 JavaScript，中文界面）。**�
 ├── main.js                 # 主进程：窗口/托盘/单实例/IPC/登录编排/schtasks/QQ 日报
 ├── preload.js              # contextBridge 白名单桥（渲染进程零 Node 权限）
 ├── renderer/               # 界面：账号管理 / 签到日历 / 通知设置 三页 + 登录弹窗
+│                           # 日历样式独立放在 calendar.css
 ├── core/                   # 逻辑层
 │   ├── storage.js          # 数据目录、设置与凭据（DPAPI 加密，含明文降级标记）
 │   ├── runner.js           # 单账号执行与结果落盘、出口统一脱敏
@@ -31,6 +32,8 @@ Windows x64 桌面应用（Electron + 原生 JavaScript，中文界面）。**�
 │   ├── test-consistency.js # IPC 白名单与共享字典单源 + 全量 JS 语法门禁
 │   ├── test-registry.js    # 插件注册表校验
 │   ├── test-core.js        # storage/logger/notify/runner/scheduler/qqbot 逻辑层
+│   ├── test-layout.js      # 真实 Electron 界面、日历交互与掩码保存（虚构数据）
+│   ├── layout-preload.js   # 仅供界面测试的隔离桥接
 │   ├── check-system-refs.js# 4 处系统引用只读体检
 │   ├── smoke.js            # 协议/注册表冒烟（--full 会跑真实签到）
 │   ├── selftest.js         # 应用内自检（仅源码目录可用）
@@ -46,17 +49,22 @@ Windows x64 桌面应用（Electron + 原生 JavaScript，中文界面）。**�
 以下命令**都在本目录（`签到助手/`）下执行**：
 
 ```bat
-npm install                       # 只装开发依赖：electron / electron-builder / 7zip-bin
+npm ci                            # 按锁文件安装开发依赖
 npm start                         # 从源码启动（脚本目录取仓库根的 脚本/）
 
 npm run test:core                 # 一致性 + 注册表 + 核心层三合一（每次改动后必跑）
 npm run test:refs                 # 只读体检：Run 自启键 / 计划任务 / 快捷方式 / 通知 CLSID
+npm run test:layout               # 真实 Electron 界面回归，只使用虚构数据
 npm run smoke                     # 协议 / 注册表冒烟（npm run smoke:full 会跑真实签到）
 node scripts/rebuild-unpacked.js  # 只构建 win-unpacked，不碰系统引用
 npx electron . --selftest --data-dir=%TEMP%\signin-app-selftest
 ```
 
 单独跑某一层：`node scripts/test-consistency.js`、`node scripts/test-registry.js`、`node scripts/test-core.js`。
+
+布局测试需要能够启动 Electron 渲染子进程的 Windows 环境。`npm run test:layout -- --screenshots`
+将截图和报告写入仓库根 `notes/layout/`（Git 忽略）；`npm run test:layout -- --packaged` 检查交付包的真实页面资源。
+隔离桥接不加载生产主进程，不读取真实账号、不发送短信或通知，也不修改自启键或计划任务。
 
 发版走一键脚本 `npm run release`（= `node scripts/release.js`）：构建 → 在工作区根组装
 `游戏社区签到助手-免安装版-v<版本>/` → 打同名 7z → 把 4 处系统引用重链到新 exe → 清理更早版本目录 → 输出自检。

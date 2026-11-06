@@ -10,7 +10,7 @@ Windows x64 绿色版（免安装）桌面应用：**每天自动帮你完成游
 
 - 本项目的签到能力依赖各社区 App 的**非公开接口**（协议实现参考了若干同类开源项目，见[致谢](#致谢)）。自动签到**很可能违反**库洛（库街区）、米哈游（米游社）、塔吉多等服务的用户协议，导致**账号被警告、封禁或奖励回收**。
 - 使用本项目产生的一切后果由使用者自行承担；权利方若要求移除相关接口实现，请开 issue 联系，我们会配合下架对应插件。
-- 账号凭据（token / Cookie / 手机号）**只加密保存在你自己的电脑上**，本工具不上传到任何服务器，作者也无法获取。唯一对外的网络请求是：①官方社区接口 ②你自己在 QQ 开放平台申请的机器人接口 ③你配置的通知渠道。
+- 账号凭据（token / Cookie / 手机号）保存在你自己的电脑上，默认使用 Windows DPAPI 加密；**系统加密不可用时会降级为明文并在界面提示**。登录与签到会将必要凭据发往对应社区接口；QQ 日报和通知会请求你配置的渠道。凭据处理细节见 [安全说明](SECURITY.md)。
 - 请勿把该工具用于代他人签到、集中托管他人账号等场景。
 
 ---
@@ -22,10 +22,10 @@ Windows x64 绿色版（免安装）桌面应用：**每天自动帮你完成游
 | **多游戏多账号** | 三个社区脚本随包自带，放进目录即自动加载；一个游戏可绑多个账号 |
 | **自动定时签到** | 内置定时器准点执行，支持「全局时间 → 游戏时间 → 账号时间」三级覆盖 |
 | **常驻可选** | 可开机自启（托盘后台跑），也可用 Windows 计划任务到点拉起补签，不必让软件常驻 |
-| **签到日历** | 按月显示每天每个游戏的成功/失败，点某天看各账号明细，记录保留一年 |
+| **签到日历** | 切换游戏查看单张月历，日期格直接显示状态与奖励，点日期看账号明细，记录保留一年 |
 | **失败告警** | 支持 Server酱 / PushPlus / 企业微信机器人 / 邮件（SMTP）四种渠道 |
 | **QQ 日报** | 可选：每天把全部结果汇总成一条发到你的 QQ（失败项一并列出） |
-| **凭据加密** | 用 Windows DPAPI 加密落盘；日志与界面对 token/Cookie 自动脱敏 |
+| **凭据加密** | 默认用 Windows DPAPI 加密落盘，降级状态可见；日志与界面对 token/Cookie 自动脱敏 |
 | **插件化** | 框架与游戏脚本解耦，按[脚本开发规范](签到助手/docs/脚本开发规范.md)写一个 `index.js` 就能接入新游戏 |
 
 ### 各游戏登录方式
@@ -42,12 +42,11 @@ Windows x64 绿色版（免安装）桌面应用：**每天自动帮你完成游
 
 ## 下载与安装（普通用户看这里）
 
-1. 到 **[Releases](https://github.com/3450892121/game-signin-helper/releases)** 下载最新的 `.7z` 资产
-   （文件名形如 `game-signin-helper-v<版本>-portable-x64.7z`；GitHub 的资产名不支持中文，解压出来的目录仍是中文名）。
+1. 到 **[最新版下载](https://github.com/3450892121/game-signin-helper/releases/latest)** 下载 `.7z` 附件，版本变更见 [更新日志](CHANGELOG.md)。
+   文件名形如 `game-signin-helper-v<版本>-portable-x64.7z`；附件采用英文名，解压后的目录仍是中文名。发布页提供 SHA-256 校验值。
 2. 解压（要整包解压，不能只拷 exe——同目录的 `.dll` / `.pak` / `locales` 必须带齐）。
 3. 打开里面的「**游戏社区签到助手**」子文件夹 → 双击 `游戏社区签到助手.exe`。
-   - 首次运行 Windows 可能弹蓝色「已保护你的电脑」提示：因为程序**没有代码签名**，点「更多信息」→「仍要运行」即可（只在第一次出现）。
-   - 个别杀毒软件会误报 Electron 打包的未签名程序，加入信任区即可。
+   - 程序没有代码签名；Windows 可能显示安全提示。请先确认来源和文件校验值，再决定是否运行。
 4. 照着同目录的 [使用教程-小白版.md](使用教程-小白版.md) 加账号、设时间。速览版见 [使用说明.txt](使用说明.txt)。
 
 绿色版无需安装、无需管理员权限；数据都在 `%APPDATA%\签到助手`，删掉程序目录数据也不丢。
@@ -60,7 +59,7 @@ Windows x64 绿色版（免安装）桌面应用：**每天自动帮你完成游
 
 ```bat
 cd 签到助手
-npm install
+npm ci
 npm start
 ```
 
@@ -91,6 +90,7 @@ game-signin-helper/
 ├── 启动签到助手.bat          # 双击启动最新版 exe（仅在源码仓库里，不进交付包）
 ├── SECURITY.md               # 凭据处理方式与漏洞上报渠道
 ├── CONTRIBUTING.md           # 开发环境、测试命令、提交规范
+├── CHANGELOG.md              # 产品版本与更新内容
 ├── 脚本/                     # 官方插件（鸣潮/崩铁/异环，中文文件夹名）
 │   ├── README.md             # 插件加载规则与目录说明
 │   ├── 鸣潮/index.js
@@ -104,7 +104,7 @@ game-signin-helper/
     │                         # qqbot（QQ 日报）、browser-login + login-gui.html（gui 登录）、
     │                         # redact（脱敏）、proc-output（reg/schtasks 的 GBK 解码）
     ├── scripts/              # test-consistency / test-registry / test-core / check-system-refs
-    │                         # smoke / selftest / rebuild-unpacked / release
+    │                         # test-layout / layout-preload / smoke / selftest / rebuild-unpacked / release
     ├── docs/脚本开发规范.md   # 插件契约（写给开发者，也写给 AI）
     └── README.md             # 框架侧速查
 ```
@@ -118,6 +118,7 @@ game-signin-helper/
 | `npm start` | 从源码启动（开发） |
 | `npm run test:core` | 核心测试三合一（一致性 + 注册表 + 逻辑层），改动后必跑 |
 | `npm run test:refs` | 只读体检：Run 自启键 / 计划任务 / 快捷方式 / 通知 CLSID 四处指向 |
+| `npm run test:layout` | 用虚构数据检查真实 Electron 页面、日历交互、窗口适配与通知掩码保存 |
 | `npm run smoke` | 协议与注册表冒烟（`npm run smoke:full` 会用真实凭据跑签到） |
 | `npm run selftest` | 应用内自检（`electron . --selftest`） |
 | `node scripts/rebuild-unpacked.js` | 只构建 `dist/win-unpacked`，不碰系统引用 |

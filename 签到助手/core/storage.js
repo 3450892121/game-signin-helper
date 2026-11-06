@@ -3,8 +3,8 @@
  * 存储模块：全局设置 + 账号清单（%APPDATA%/签到助手 或注入的 dataDir）
  *
  * 文件：
- * settings.json 全局设置（默认签到时间、每游戏开关/时间、通知渠道、自启、系统任务）
- * accounts.json 账号清单（凭据字段整体加密存储）
+ *   settings.json  全局设置（默认签到时间、每游戏开关/时间、通知渠道、自启、系统任务）
+ *   accounts.json  账号清单（凭据字段整体加密存储）
  *
  * 加密：通过 init 注入 { encrypt, decrypt }（Electron 主进程用 safeStorage 实现）；
  * 未注入时明文存储并标记 credentials.plain=true（开发模式，UI 提示）。
@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS = {
     pushplus: { token: '', template: 'html' },
     wecom: { webhook: '' },
     email: { smtpHost: '', smtpPort: '', user: '', pass: '', to: '' },   // t15：SMTP 邮箱渠道（零依赖 net/tls）
-    qqbot: { appId: '', appSecret: '', openid: '' },                     // QQ 机器人每日签到日报（openid 由绑定写入）
+    qqbot: { appId: '', appSecret: '', openid: '' },                     // v2.9.0：QQ 机器人每日签到日报（openid 由绑定写入）
   },
   autoStart: true,                            // 开机自启 + 托盘常驻
   useSystemTask: false,                       // 是否同步写入 Windows 计划任务
@@ -41,8 +41,8 @@ function validHHmm(v) {
   return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
 }
 
-/** 账号生效时间三级回退：账号时间 → 游戏统一时间 → 全局统一时间
- * 返回规范化 'HH:mm' 或 ''（都未设置）。settings 用 loadSettings 结果。 */
+/** 账号生效时间三级回退：账号时间 → 游戏统一时间 → 全局统一时间（v2.6.0）
+ * 返回规范化 'HH:mm' 或 ''（都未设置）。settings 用 loadSettings() 结果。 */
 function effectiveTimeFor(account, settings) {
   settings = settings || {};
   const gs = (settings.games || {})[account && account.game] || {};
@@ -95,7 +95,7 @@ function create(dataDir, opts) {
     return out;
   }
 
-  let lastInstalledRaw = null;   // 上次成功的已安装来源快照（来源抛异常时兜底，防 games 被剪空后随任意保存落盘）
+  let lastInstalledRaw = null;   // v2.7.6 D3：上次成功的已安装来源快照（来源抛异常时兜底，防 games 被剪空后随任意保存落盘）
   /** 当前已安装游戏列表（每次 load 重取，支持运行时插件增删即时反映） */
   function resolveInstalled() {
     let raw;
@@ -167,7 +167,7 @@ function create(dataDir, opts) {
     for (const g of resolveInstalled()) {
       games[g.id] = Object.assign({}, g.defaults, (s.games || {})[g.id] || {});
       if (!('enabled' in games[g.id])) games[g.id].enabled = g.defaults.enabled;
-      // 插件/已存游戏时间晚于全局统一时间时钳制为全局（保证「全局最晚」兜底不变量）
+      // v2.6.0：插件/已存游戏时间晚于全局统一时间时钳制为全局（保证「全局最晚」兜底不变量）
       const gt = validHHmm(games[g.id].time);
       const dt = validHHmm(merged.defaultTime);
       if (gt && dt && gt > dt) games[g.id].time = dt;
@@ -219,11 +219,11 @@ function create(dataDir, opts) {
   }
 
   /**
- * 增删改查（供 runner/UI 使用）
- * upsertAccount(account)：按 id 覆盖或新增（加密存储）
- * removeAccount(id)
- * getAccountsByGame(gameId)：某游戏全部账号（含禁用）
- */
+   * 增删改查（供 runner/UI 使用）
+   * upsertAccount(account)：按 id 覆盖或新增（加密存储）
+   * removeAccount(id)
+   * getAccountsByGame(gameId)：某游戏全部账号（含禁用）
+   */
   function upsertAccount(account) {
     const list = loadAccounts();
     const idx = list.findIndex(a => a.id === account.id);
@@ -243,8 +243,8 @@ function create(dataDir, opts) {
   }
 
   /** 移除游戏数据（t7：配合注册表 removePlugin / games:remove 通道）
- * 清理：该游戏全部账号（含加密凭据）→ settings.games[gameId]
- * @returns {{removedAccounts:number, settingsRemoved:boolean}} */
+   * 清理：该游戏全部账号（含加密凭据）→ settings.games[gameId]
+   * @returns {{removedAccounts:number, settingsRemoved:boolean}} */
   function removeGameData(gameId) {
     // 单次读写批量删除：避免逐账号「读全量→过滤→写全量」的 O(n²) 与非原子风险
     const list = loadAccounts();
@@ -269,9 +269,9 @@ function create(dataDir, opts) {
 
   // ---------- 设备指纹（按游戏持久化） ----------
   // 为什么需要：有些社区（如塔吉多）的发码/登录接口对「同一账号反复换设备标识」有风控。
-  // 首次登录没有已有账号可借指纹，此时生成全新随机指纹正落在风控高发场景
-  // （要收到验证码得先有账号可借指纹，要有账号得先收到验证码）。
-  // 所以按游戏存一份到 <dataDir>/fingerprints.json：首次生成后立即持久化，之后每次登录都复用同一份。
+  // 原先指纹只能从同游戏**已有账号**的 credentials 里借，于是首次登录必然生成一份全新随机指纹——
+  // 正是风控高发场景，还形成鸡生蛋（要收到验证码得先有账号可借指纹，要有账号得先收到验证码）。
+  // 现在按游戏存一份到 <dataDir>/fingerprints.json：首次生成后立即持久化，之后每次登录都复用同一份。
   function fingerprintsFile() { return path.join(dataDir, 'fingerprints.json'); }
 
   function loadFingerprints() {
@@ -299,7 +299,7 @@ function create(dataDir, opts) {
     return {
       available: !!enc,
       mode: enc ? 'encrypted' : 'plain',
-      // accounts.json 中是否存在明文标记（plain:true 的凭据）
+      // accounts.json 中是否存在明文标记（历史遗留的明文凭据）
       hasPlainFlag: (function () {
         try {
           const list = readJson(path.join(dataDir, 'accounts.json'), []);

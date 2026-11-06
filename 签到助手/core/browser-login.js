@@ -6,35 +6,37 @@
  * 打开 core/login-gui.html；页面里的各个 tab 通过 /api/* 回调主进程完成登录，成功后由主进程
  * 加密存档并刷新界面。凭据不经过浏览器页面——页面只拿到账号摘要（手机号掩码/uid 等）。
  *
- * ⚠️ 别把塔吉多短信登录归因为「官方风控」。应用内发码若返回 code=1
- * 『短信正在发送，长时间收不到请用语音验证码』，先查设备指纹是不是每次登录都在变
- * （见 main.js 的 makeLoginCtx 与 <dataDir>/fingerprints.json）。外部项目
- * SkyBlue997/tjd-daily、Candy-QAQ/NTE-Auto-Sign、Loping151/TGDSign 用的是同一套短信登录。
- * gui 只是等效兜底入口：它的短信/粘贴 tab 调的就是插件里同一对 sendSmsCode/loginBySms
- * 与 loginByPaste，与在应用内直接登录功能重复。
+ * ⚠️ 历史误诊已纠正（2026-10-04）：本文件原先写着「异环(塔吉多)官方短信被风控——调用
+ * sendPhoneCaptchaWithOutLogin 返回 code=1『短信正在发送，长时间收不到请用语音验证码』，应用内
+ * 验证码无法可靠收码，非 app 缺陷」，并以此作为把 gui 方式提到第一位的依据。该归因已被用户推翻：
+ * 异环短信能正常收发，当年发不了是本仓代码问题（疑点见 main.js 中 existingFingerprint 的注释：
+ * 首次登录必然生成全新随机指纹）。外部三个活跃开源项目（SkyBlue997/tjd-daily、
+ * Candy-QAQ/NTE-Auto-Sign、Loping151/TGDSign）也都在用塔吉多短信登录，issue 区无「收不到」反馈。
+ * 因此 gui 现已降为等效兜底入口：它的短信/粘贴 tab 调的就是插件里同一对 sendSmsCode/loginBySms
+ * 与 loginByPaste，功能与在应用内直接登录重复。
  *
  * 安全：
- * - 只监听 127.0.0.1 + 系统随机空闲端口（server.listen(0,...)），其他设备无法访问；
- * - 每次启动生成一次性随机 token，拼进访问地址 ?t=<token>；页面所有 /api/* 请求必须带
- * X-Auth-Token，否则 403（防本机其他网页/程序误调用）；
- * - 登录接口只回传账号摘要（手机号掩码/uid/source/hasRefreshToken），绝不回传凭据明文。
+ *   - 只监听 127.0.0.1 + 系统随机空闲端口（server.listen(0,...)），其他设备无法访问；
+ *   - 每次启动生成一次性随机 token，拼进访问地址 ?t=<token>；页面所有 /api/* 请求必须带
+ *     X-Auth-Token，否则 403（防本机其他网页/程序误调用）；
+ *   - 登录接口只回传账号摘要（手机号掩码/uid/source/hasRefreshToken），绝不回传凭据明文。
  *
  * 纯 Node 内置模块（零依赖、不 require Electron），可被主进程与 scripts/ 冒烟测试共用。
  * 用法：
- * const gui = require('./browser-login.js');
- * const server = gui.createGuiServer({ html, handlers, onShutdown });
- * server.on('closed', cb); // 服务关闭回调
- * const url = await server.open; // 启动并返回 http://127.0.0.1:<port>/?t=<token>
- * server.close; // 关闭（/api/shutdown 也会关闭）
+ *   const gui = require('./browser-login.js');
+ *   const server = gui.createGuiServer({ html, handlers, onShutdown });
+ *   server.on('closed', cb);                 // 服务关闭回调
+ *   const url = await server.open();         // 启动并返回 http://127.0.0.1:<port>/?t=<token>
+ *   server.close();                          // 关闭（/api/shutdown 也会关闭）
  *
  * handlers（async，返回 {ok:true,...} 或 {ok:false,message}）：
- * status → { ok, gameName, methods:['sms','paste'], hasAccounts,
- * accounts:[{nickname,uid,source,loginAt,hasRefreshToken}], tip }
- * methods 决定页面显示哪些 tab（tab 的 data-tab 必须与此处字符串完全一致）
- * smsSend({phone}) → { ok, message }
- * smsLogin({phone,code}) → { ok, account, tip }
- * paste({token}) → { ok, account, tip }
- * （不提供密码登录：没有 password 处理器，也没有 /api/password 路由）
+ *   status()             → { ok, gameName, methods:['sms','paste'], hasAccounts,
+ *                            accounts:[{nickname,uid,source,loginAt,hasRefreshToken}], tip }
+ *                          methods 决定页面显示哪些 tab（tab 的 data-tab 必须与此处字符串完全一致）
+ *   smsSend({phone})     → { ok, message }
+ *   smsLogin({phone,code})       → { ok, account, tip }
+ *   paste({token})       → { ok, account, tip }
+ *   （password 处理器与 /api/password 路由已于 2026-10-05 移除：无插件提供密码登录）
  */
 const http = require('http');
 const crypto = require('crypto');

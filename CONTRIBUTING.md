@@ -11,7 +11,7 @@
 
 ```bat
 cd 签到助手
-npm install
+npm ci
 npm start
 ```
 
@@ -34,6 +34,9 @@ npm run test:core
 ```
 
 三合一：`test-consistency`（IPC 白名单/字典单源 + 全量 JS 语法门禁）、`test-registry`（插件注册表校验）、`test-core`（storage / logger / notify / runner / scheduler / qqbot 逻辑层）。
+
+修改界面后还需运行 `npm run test:layout`。它使用虚构数据检查真实 Electron 页面，不执行真实签到、短信或通知。
+需要保留界面证据时加 `-- --screenshots`，结果写入被 Git 忽略的 `notes/layout/`；发布后加 `-- --packaged` 复核成品资源。
 
 ```bat
 npm run test:refs

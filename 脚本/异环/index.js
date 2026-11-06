@@ -3,38 +3,40 @@
  * 塔吉多（异环）协议模块
  *
  * 接口来源：SkyBlue997/tjd-daily（MIT）、Loping151/TGDSign、Candy-QAQ/NTE-Auto-Sign
- * - 老虎(laohu)账号体系：POST https://user.laohu.com/openApi/sms/new/login 等
- * - BBS 换 token ：POST https://bbs-api.tajiduo.com/usercenter/api/login
- * - token 续期 ：POST https://bbs-api.tajiduo.com/usercenter/api/refreshToken
+ *   - 老虎(laohu)账号体系：POST https://user.laohu.com/openApi/sms/new/login 等
+ *   - BBS 换 token     ：POST https://bbs-api.tajiduo.com/usercenter/api/login
+ *   - token 续期       ：POST https://bbs-api.tajiduo.com/usercenter/api/refreshToken
  *
- * 登录（短信为推荐主路）：
- *   genFingerprint → { deviceid, openudid, vendorid } // 生成设备指纹
- *   reuseFingerprint(oldCfg) → 同上 // 优先复用已绑定账号的指纹
- *   sendSmsCode(mobile, fp) → { ok, msg } // 发送短信验证码
- *   loginBySms(mobile, code, fp) → credentials // 短信验证码登录（推荐）
- *   loginByPaste(token, fp, oldCred) → credentials // 粘贴抓包 token（兜底，无自动续期）
+ * 登录（短信为推荐主路，2026-10-04 核实）：
+ *   genFingerprint()                 → { deviceid, openudid, vendorid }   // 生成设备指纹
+ *   reuseFingerprint(oldCfg)         → 同上                               // 优先复用已绑定账号的指纹
+ *   sendSmsCode(mobile, fp)          → { ok, msg }                        // 发送短信验证码
+ *   loginBySms(mobile, code, fp)     → credentials                        // 短信验证码登录（推荐）
+ *   loginByPaste(token, fp, oldCred) → credentials                        // 粘贴抓包 token（兜底，无自动续期）
  *   另有 kind:'gui' 的「浏览器登录」：由框架 core/browser-login.js 起本地页面，内部调的仍是上面
  *   同一对 sendSmsCode/loginBySms 与 loginByPaste，属功能重复的兜底入口。
  *
- * 不提供密码登录：本插件 loginMethods 没有 kind:'password'，框架也没有这条分发路径。
- * 注：POST /openApi/secureLogin 接口本身可用（tjd-daily 至今把它列为推荐路径）；
- * 要接入需同时补 kind:'password' 声明与浏览器登录页的密码 tab。
+ * 已移除：loginByPassword / step2PasswordLogin（POST /openApi/secureLogin）。移除原因是它在框架里
+ *   **零可达入口**——本插件 loginMethods 从未声明 kind:'password'，浏览器登录页的密码 tab 又因
+ *   core/login-gui.html 用 data-tab="pwd" 而框架下发 'password'、名字不符而永久隐藏。
+ *   注：接口本身可用（tjd-daily 至今把它列为推荐路径）；如要恢复，需同时补 kind:'password' 声明
+ *   并修好 tab 名，代码见 git 历史。
  *
  * 凭据（credentials）：{ token, refreshToken, deviceid, openudid, vendorid, uid,
- * phone?, account_uid?, loginAt, source }
+ *                        phone?, account_uid?, loginAt, source }
  *
  * 签到：
- * signin(account) → { result, credentialsUpdate }
- * - 按需刷新：正常签到直接用现有 accessToken，
- * 绝不主动刷新 refreshToken（主动刷新会轮换并作废旧 token，顶掉 App/游戏会话）；仅当接口返回
- * 401/402（token 已失效）时才刷新重试一次
- * - 社区签到 + 自动遍历全部绑定游戏的角色签到
+ *   signin(account) → { result, credentialsUpdate }
+ *     - 【抢账号修复 · 2026-08-28】按需刷新：正常签到直接用现有 accessToken，
+ *       绝不主动刷新 refreshToken（主动刷新会轮换并作废旧 token，顶掉 App/游戏会话）；仅当接口返回
+ *       401/402（token 已失效）时才刷新重试一次
+ *     - 社区签到 + 自动遍历全部绑定游戏的角色签到
  */
 
 const https = require('https');
 const crypto = require('crypto');
 
-// ── 协议常量（App 不升级就不变）──────────────────────────────────────────────
+// ── 协议常量（App 不升级就不变，与用户原版 异环_login.js 完全一致）────────────────────
 const LAOHU_HOST = 'user.laohu.com';      // 老虎账号体系
 const BBS_HOST   = 'bbs-api.tajiduo.com'; // 塔吉多社区
 const APP_ID     = '10551';
@@ -120,7 +122,7 @@ function maskPhone(p) {
 // ── HTTP ─────────────────────────────────────────────
 function httpRequest(host, port, pathname, headers, bodyStr, method) {
   return new Promise((resolve, reject) => {
-    // 对照异环_signin.js request：带 body 时自动补 Content-Type（表单编码），
+    // 对照异环_signin.js request()：带 body 时自动补 Content-Type（表单编码），
     // 否则 /apihub/api/signin 等 POST 缺 Content-Type 头 → 服务器无法解析 body 返回 code=1「系统错误」
     const h = Object.assign({ 'Content-Length': Buffer.byteLength(bodyStr || '') }, headers || {});
     if (bodyStr && !h['Content-Type']) h['Content-Type'] = 'application/x-www-form-urlencoded';
@@ -218,11 +220,11 @@ async function step3BbsLogin(laohuToken, userId, deviceid) {
     'Host': BBS_HOST,
   }, body);
   const j = jsonOrNull(res.body);
-  if (!j) return { ok: false, message: '响应非 JSON（前80字符）：' + res.body.slice(0, 80) };   // 收敛原文片段
+  if (!j) return { ok: false, message: '响应非 JSON（前80字符）：' + res.body.slice(0, 80) };   // v2.7.6 D16：收敛原文片段
   return j;
 }
 
-/** 登录失败摘要：只取 message/code 回显 UI，避免把完整响应（可能含 token/refreshToken）弹给用户 */
+/** 登录失败摘要（v2.7.6 D16）：只取 message/code 回显 UI，避免把完整响应（可能含 token/refreshToken）弹给用户 */
 function failSummary(j) {
   if (!j || typeof j !== 'object') return '响应非 JSON';
   const msg = j.message || j.msg || j.errMsg || j.error || '';
@@ -260,7 +262,7 @@ async function buildCredentials(phone, fp, laohuResult, source) {
 
 /**
  * 手机号 + 短信验证码登录
- * @param {object} fp 设备指纹（genFingerprint 或已有凭据中的）
+ * @param {object} fp 设备指纹（genFingerprint() 或已有凭据中的）
  */
 async function loginBySms(mobile, code, fp) {
   const j = await step2SmsLogin(mobile, code, fp);
@@ -400,8 +402,8 @@ async function signin(account) {
     return { result: signResult('error', 'failed', '❌ 配置缺少 token，请重新登录', ['配置缺少 token']), credentialsUpdate: null };
   }
 
-  // 不要每次运行前主动刷新 refreshToken！
-  // 原因：refreshToken 是轮换、单会话的，主动调 /usercenter/api/refreshToken
+  // 【抢账号修复 · 2026-08-28，对照异环_signin.js】不再每次运行前主动刷新 refreshToken！
+  // 原因（技术档案 §8.1b）：refreshToken 是轮换、单会话的，主动调 /usercenter/api/refreshToken
   // 会作废旧 refreshToken 并重新签发，使 App/游戏里基于旧 token 的活跃会话失效（账号被顶下线）。
   // 正确做法：正常签到直接用现有 accessToken；仅当接口真正返回 401/402（token 已失效）时才
   // 刷新重试一次（社区签到段与游戏签到段已各自实现按需刷新）。
@@ -538,7 +540,7 @@ async function signin(account) {
   } catch (e) { lines.push('游戏签到异常：' + e.message); gameResult = '脚本异常：' + e.message; }
 
   // 3) 汇总
-  // 第 2+ 个游戏的结果在 extraLines 里，原 hasFail 只检查 gameResult+bbsResult，
+  // v2.7.5 修复：第 2+ 个游戏的结果在 extraLines 里，原 hasFail 只检查 gameResult+bbsResult，
   // 多游戏时「第 1 个成功、后续游戏失败」会被误判为整体成功、不推送失败告警。
   // extraLines 中的「未绑定角色，跳过」属信息性跳过，不计失败（与旧行为一致）。
   const extraFail = extraLines.some(l => /❌|失败|异常|失效/.test(String(l || '')));
@@ -563,13 +565,18 @@ module.exports = {
   defaultEnabled: true,
   defaultTime: '06:05',
   loginMethods: [
-    // 登录方式：短信验证码（推荐，用户实测可用） / 粘贴 token（兜底） / 浏览器登录（重复入口）
+    // 登录方式（2026-10-04 重排）：短信验证码（推荐，用户实测可用） / 粘贴 token（兜底） / 浏览器登录（重复入口）
     //
-    // 短信是本插件的推荐主路，别把收不到验证码归因为「官方风控」。应用内发码若返回 code=1
-    // 『短信正在发送，长时间收不到请用语音验证码』，先查设备指纹是不是每次登录都在变：
-    // 框架按游戏持久化指纹（<dataDir>/fingerprints.json），首次生成后即复用；
-    // tjd-daily 也注明「同账号每次登录建议复用同一份指纹」「--new-device 老账号慎用，可能触发风控」。
-    // SkyBlue997/tjd-daily、Candy-QAQ/NTE-Auto-Sign、Loping151/TGDSign 用的是同一套短信登录。
+    // 【旧结论已推翻，勿再引用】此前这里写着「短信验证码收不到是官方风控（sendPhoneCaptchaWithOutLogin
+    //   返回 code=1『短信正在发送，长时间收不到请用语音验证码』），非本应用缺陷」，并据此把「浏览器登录」
+    //   提到第一位、短信降级。该归因是误诊：①用户实测短信可正常收发；②外部三个活跃开源项目
+    //   （SkyBlue997/tjd-daily、Candy-QAQ/NTE-Auto-Sign、Loping151/TGDSign）都在用短信登录，
+    //   issue 区无任何「收不到验证码」反馈。
+    // 【真实疑点，2026-10-05 已修并已真机实测确认】本仓的设备指纹处理：修复前 main.js 的
+    //   existingFingerprint() 只能从「同游戏已有账号」借指纹，首次登录必然生成全新随机指纹；而
+    //   tjd-daily 明确注明「同账号每次登录建议复用同一份指纹」「--new-device 老账号慎用，可能触发风控」
+    //   ——与旧注释描述的症状吻合。现已改为按游戏持久化指纹（<dataDir>/fingerprints.json），首次生成后
+    //   即复用。实测：用新手机号走首次登录场景（无账号、无 fingerprints.json）发码与登录均成功，根因坐实。
     // 每种方式带 help（官方网址 + 小白分步操作说明），由登录弹窗「官方网址与操作步骤」帮助区渲染
 
     { id: 'sms', kind: 'sms', label: '手机号+短信验证码（推荐）', needs: ['mobile', 'code'], hint: '短信登录；token 按需刷新，不主动顶号', help: {
@@ -593,7 +600,8 @@ module.exports = {
 
     // 浏览器登录：框架 core/browser-login.js 起一个只监听 127.0.0.1 的本地页面并用系统浏览器打开。
     // 它的短信/粘贴两个 tab 调的就是上面同一对 sendSmsCode/loginBySms 与 loginByPaste，属功能重复的
-    // 兜底入口（登录页只有短信与粘贴两个 tab）。若只想精简，可直接删掉这一项，短信与粘贴不受影响。
+    // 兜底入口（原先排第一位是因为误判「短信被官方风控」，该误判已推翻）。密码 tab 已随 loginByPassword
+    // 一并移除。若只想精简，可直接删掉这一项，短信与粘贴不受影响。
     { id: 'browser', kind: 'gui', label: '浏览器登录', needs: ['gui'], hint: '用默认浏览器打开登录界面（短信/粘贴 token），成功自动绑定；与上面两种方式等效', help: {
       links: [{ url: 'https://www.tajiduo.com/bbs/index.html', text: '塔吉多网页版 BBS' }],
       steps: [

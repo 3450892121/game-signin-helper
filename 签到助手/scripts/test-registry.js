@@ -20,7 +20,7 @@ fs.writeFileSync(i,src('cache-v4'));
 var a3=r2.addPlugin(d);
 var a3ok = a3.ok ? (a3.plugin ? (a3.plugin.id === 'cache-v4' ? true : false) : false) : false;
 ck('addPlugin same-path rewrite reads new id', a3ok);
-// ---------- 目录名≠id 时，目录删除后 getDisappeared 返回真实插件 id ----------
+// ---------- v2.7.6 Z1 回归：目录名≠id 时，目录删除后 getDisappeared 返回真实插件 id ----------
 var t3=fs.mkdtempSync(path.join(os.tmpdir(),'rgc-z1-'));
 var dataDir3=path.join(t3,'data'); fs.mkdirSync(dataDir3,{recursive:true});
 var uDir3=path.join(t3,'plugins'); var d3=path.join(uDir3,'中文名目录'); fs.mkdirSync(d3,{recursive:true});

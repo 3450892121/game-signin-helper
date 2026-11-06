@@ -4,9 +4,9 @@
  *
  * 文件：<dataDir>/logs/signin.log（追加；超过 MAX_SIGNIN_LOG_SIZE 自动轮转为 signin-<日期>.log）
  * 缓冲：最近 MAX_BUFFER 条（每条 { time, msg }）
- * 保留策略（只保留最近一年）：
- * - retain(days)：删除超过 days 天的每日结果 logs/YYYY-MM-DD.json 与轮转日志 signin-<日期>.log
- * - signin.log 超 2MB 自动轮转后同样按日龄受 retain 清理
+ * 保留策略（t5/尝试2：只保留最近一年）：
+ *   - retain(days)：删除超过 days 天的每日结果 logs/YYYY-MM-DD.json 与轮转日志 signin-<日期>.log
+ *   - signin.log 超 2MB 自动轮转后同样按日龄受 retain 清理
  */
 
 const fs = require('fs');
@@ -87,14 +87,14 @@ function create(dataDir) {
   }
 
   /**
- * 保留策略（只保留最近一年）：
- * - 删除超过保留期的每日结果 logs/YYYY-MM-DD.json
- * - 删除超过保留期的轮转日志 signin-<日期>.log（含 <日期>-<n> 多段形式）
- * - 顺带清理写入残留的 .tmp 文件（早于保留期）
- * - 轮转当前过大的 signin.log
- * @param {number} [days] 保留天数（缺省 RETENTION_DAYS=365）≈ 保留最近一年
- * @returns {{scannedResults:number,deletedResults:number,scannedLogs:number,deletedLogs:number,rotated:boolean}}
- */
+   * 保留策略（t5/尝试2：只保留最近一年）：
+   *  - 删除超过保留期的每日结果 logs/YYYY-MM-DD.json
+   *  - 删除超过保留期的轮转日志 signin-<日期>.log（含 <日期>-<n> 多段形式）
+   *  - 顺带清理写入残留的 .tmp 文件（早于保留期）
+   *  - 轮转当前过大的 signin.log
+   * @param {number} [days] 保留天数（缺省 RETENTION_DAYS=365）≈ 保留最近一年
+   * @returns {{scannedResults:number,deletedResults:number,scannedLogs:number,deletedLogs:number,rotated:boolean}}
+   */
   function retain(days) {
     days = Number.isFinite(days) ? Math.max(1, Math.floor(days)) : RETENTION_DAYS;
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -137,12 +137,12 @@ function create(dataDir) {
   }
 
   /**
- * 某月每日结果聚合：
- * 读 logs/YYYY-MM-DD.json（该月每一天），返回 { [gameId]: { 'YYYY-MM-DD': [账号结果...] } }。
- * 无结果文件的日期不出现；主进程用 summarizeDay 归并成日历状态。
- * @param {number} year 如 2026
- * @param {number} month 1-12
- */
+   * 某月每日结果聚合（v2.6.0 签到日历数据源）：
+   * 读 logs/YYYY-MM-DD.json（该月每一天），返回 { [gameId]: { 'YYYY-MM-DD': [账号结果...] } }。
+   * 无结果文件的日期不出现；主进程用 summarizeDay 归并成日历状态。
+   * @param {number} year 如 2026
+   * @param {number} month 1-12
+   */
   function monthResults(year, month) {
     const out = {};
     const pad2 = (x) => String(x).padStart(2, '0');
@@ -167,13 +167,13 @@ function create(dataDir) {
 module.exports = { create, MAX_BUFFER, RETENTION_DAYS, MAX_SIGNIN_LOG_SIZE, summarizeDay };
 
 /**
- * 某游戏一天签到结果的日历状态：
+ * 某游戏一天签到结果的日历状态（v2.6.0，二态判定）：
  * 全部 ok=true → { status:'ok' }；存在失败/部分未完成/空 → { status:'fail' }。
- * rewards 字段：ok 记录的 reward 文案保序去重（失败记录/缺失不计），供日历格子悬停展示。
+ * v2.8.0 起 rewards 字段：ok 记录的 reward 文案保序去重（失败记录/缺失不计），供日历格子悬停展示。
  * @param {Array} list 该游戏当天账号结果数组（runner 归一化后的 {accountId, ok, ...}）
  */
 function summarizeDay(list) {
-  // 按「当天是否成功签到过」判定（用户核心诉求）——
+  // v2.7.2：按「当天是否成功签到过」判定（用户核心诉求）——
   // 某账号当天只要成功签到过（存在任意 ok=true 记录），后续重试失败不覆盖成功；
   // 统计口径：账号数（total=账号数），每账号当天有任一成功记录即 ok，否则 fail。
   // 游戏状态：所有账号都 ok → 'ok'；有账号当天全失败/无记录 → 'fail'；无任何记录 → 'fail'（无记录=失败）。

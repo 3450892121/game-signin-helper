@@ -1,7 +1,7 @@
 {
   "name": "game-signin-helper",
   "productName": "游戏社区签到助手",
-  "version": "2.9.1",
+  "version": "2.10.0",
   "description": "鸣潮(库街区)/崩铁(米游社)/异环(塔吉多) 社区自动签到助手",
   "main": "main.js",
   "private": true,
@@ -12,6 +12,7 @@
     "smoke:full": "node scripts/smoke.js --full",
     "test:core": "node scripts/test-consistency.js && node scripts/test-registry.js && node scripts/test-core.js",
     "test:refs": "node scripts/check-system-refs.js",
+    "test:layout": "electron scripts/test-layout.js",
     "dist": "electron-builder --win nsis --x64",
     "dist:dir": "electron-builder --win dir --x64",
     "release": "node scripts/release.js",

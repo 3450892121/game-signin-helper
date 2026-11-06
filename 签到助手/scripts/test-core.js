@@ -5,9 +5,9 @@
  * 用法：node scripts/test-core.js
  *
  * 安全策略（同 smoke.js）：
- * - 使用临时数据目录（%TEMP%/signin-app-core-test），测试后删除
- * - kuro/mihoyo 用现有 config 凭据跑真实 signin（今天已签过=无副作用）
- * - tajiduo 只验证模块可加载与存储加密往返，不执行 signin（避免轮换 refreshToken 影响明早 schtasks）
+ *   - 使用临时数据目录（%TEMP%/signin-app-core-test），测试后删除
+ *   - kuro/mihoyo 用现有 config 凭据跑真实 signin（今天已签过=无副作用）
+ *   - tajiduo 只验证模块可加载与存储加密往返，不执行 signin（避免轮换 refreshToken 影响明早 schtasks）
  */
 
 const path = require('path');
@@ -23,7 +23,7 @@ const schedulerMod = require('../core/scheduler.js');
 const TEST_DIR = path.join(os.tmpdir(), 'signin-app-core-test');
 // 真实凭据实校改为可选项：v2 起凭据存于应用加密存储（DPAPI），Node 侧无法解密。
 // 需要凭据实校时用环境变量指向同构 JSON（旧 config.json 与 credentials 字段同构）：
-// SMOKE_KURO_CONFIG / SMOKE_MIHOYO_CONFIG / SMOKE_TAJIDUO_CONFIG
+//   SMOKE_KURO_CONFIG / SMOKE_MIHOYO_CONFIG / SMOKE_TAJIDUO_CONFIG
 const CONFIG_MAP = { kuro: process.env.SMOKE_KURO_CONFIG || '', mihoyo: process.env.SMOKE_MIHOYO_CONFIG || '', tajiduo: process.env.SMOKE_TAJIDUO_CONFIG || '' };
 
 let failures = 0;
@@ -90,7 +90,7 @@ const store = storage.create(TEST_DIR, {
   store.saveSettings(s1);
   check('设置保存', store.loadSettings().defaultTime === '07:30');
 
-  // effectiveTimeFor 三级回退
+  // effectiveTimeFor 三级回退（v2.6.0：账号→游戏→全局）
   const eff = storage.effectiveTimeFor;
   const sEff = { defaultTime: '08:00', games: { g1: { time: '07:00' }, g2: {} } };
   check('effectiveTimeFor 三级回退',
@@ -102,9 +102,9 @@ const store = storage.create(TEST_DIR, {
     '账号>游戏>全局；空→空');
   check('effectiveTimeFor 非法值回退', eff({ game: 'g1', time: '25:99' }, sEff) === '07:00', '非法账号时间回退游戏时间');
 
-  // ---------- 设备指纹按游戏持久化----------
-  // 有些社区对「同账号反复换设备标识」有风控；首次登录没有已有账号可借指纹，
-  // 必须复用按游戏持久化的那一份，否则每次都换新指纹。
+  // ---------- 设备指纹按游戏持久化（v2.9.1：修「首次登录必然用全新随机指纹」）----------
+  // 背景：有些社区对「同账号反复换设备标识」有风控；修复前指纹只能从同游戏已有账号借，
+  // 首次登录必然新生成 → 疑似异环「短信收不到」的真因（旧注释误判为官方风控）。
   {
     const fpDir = path.join(os.tmpdir(), 'signin-app-core-test-fp');
     try { fs.rmSync(fpDir, { recursive: true, force: true }); } catch (e) { /* 首次不存在 */ }
@@ -130,7 +130,7 @@ const store = storage.create(TEST_DIR, {
     try { fs.rmSync(fpDir, { recursive: true, force: true }); } catch (e) { /* 清理失败不影响判定 */ }
   }
 
-  // 插件 defaultTime 晚于全局时钳制为全局
+  // 插件 defaultTime 晚于全局时钳制为全局（v2.6.0 保证「全局最晚」不变量）
   // 场景：插件默认 23:00、全局 09:00、用户未给该游戏设时间 → 解析为 09:00（钳制）
   const sClamp = storage.create(TEST_DIR, { encrypt: enc, decrypt: dec, installedGames: () => [
     { id: 'gLate', defaultEnabled: true, time: '23:00' },
@@ -158,7 +158,7 @@ const store = storage.create(TEST_DIR, {
   const recent = log.recent(10);
   check('日志缓冲', recent.length === 2 && recent[1].msg === '测试日志 B');
   check('日志落盘', fs.existsSync(path.join(TEST_DIR, 'logs', 'signin.log')));
-  // summarizeDay 二态判定
+  // summarizeDay 二态判定（v2.7.2 起：按「当天是否成功签到过」——有成功记录即成功，后续重试失败不覆盖）
   check('summarizeDay 当天成功过即ok',
     // 全成功 → ok
     logger.summarizeDay([{ accountId: 'a', ok: true }, { accountId: 'a', ok: true }]).status === 'ok' &&
@@ -187,7 +187,7 @@ const store = storage.create(TEST_DIR, {
     logger.summarizeDay([]).status === 'fail' &&
     logger.summarizeDay(null).status === 'fail',
     '当天成功过（后续重试失败也绿）→ok；全天仅失败→fail；任一账号未成功→fail；空/无→fail');
-  // summarizeDay rewards 奖励汇总
+  // summarizeDay rewards 奖励汇总（v2.8.0：ok 记录 reward 保序去重，供日历格子悬停展示）
   const _rw = logger.summarizeDay([
     { accountId: 'a', ok: true,  reward: '星琼 ×60' },
     { accountId: 'b', ok: true,  reward: '星琼 ×60' },
@@ -270,24 +270,26 @@ const store = storage.create(TEST_DIR, {
   }
 
   // ---------- 三插件登录方式结构检查（不执行登录） ----------
-  // 顺序与各插件 loginMethods 的声明保持一致。
+  // 2026-10-04 按「用户实测可用 + 外部证据」重排并裁剪，详见各插件头部注释。
   const kGame = runner.loadGame('kuro');
   check('库街区登录方式（短信第一位）', kGame.loginMethods.map(m => m.id).join(',') === 'sms,paste,web', kGame.loginMethods.map(m => m.id).join(','));
 
   // tajiduo 结构检查（不执行）
   const tGame = runner.loadGame('tajiduo');
   check('塔吉多模块可加载', typeof tGame.signin === 'function');
-  // 异环登录方式 = 短信验证码(推荐) + 粘贴 token + 浏览器登录(等效兜底)
+  // 异环登录方式 = 短信验证码(推荐，用户实测可用) + 粘贴 token + 浏览器登录(等效兜底)
+  // 旧断言锁 'browser,sms,paste'，其依据「应用内短信收不到是官方风控 code=1」已被用户推翻：
+  // 实为本仓代码问题，疑点在首次登录必然生成全新随机指纹（main.js existingFingerprint 无账号可复用）。
   check('塔吉多登录方式（短信第一位）', tGame.loginMethods.map(m => m.id).join(',') === 'sms,paste,browser', tGame.loginMethods.map(m => m.id).join(','));
-  // 不提供密码登录：框架内零可达入口（无 kind:'password' 声明，且 login-gui.html 的 tab 名 'pwd' 与框架下发的 'password' 不符）
-  check('塔吉多无密码登录函数', typeof tGame.loginByPassword === 'undefined' && typeof tGame.step2PasswordLogin === 'undefined');
+  // 密码登录已移除：框架内零可达入口（无 kind:'password' 声明，且 login-gui.html 的 tab 名 'pwd' 与框架下发的 'password' 不符）
+  check('塔吉多已移除密码登录', typeof tGame.loginByPassword === 'undefined' && typeof tGame.step2PasswordLogin === 'undefined');
 
   // mihoyo 结构检查（登录方式：网页登录(推荐，自动抓 Cookie) + 粘贴 Cookie 兜底）
-  // 不提供扫码登录：hk4e panda 端点已失效（MihoyoBBSTools issue#285，retcode:-5300），且全仓无界面入口
-  // 不提供短信登录：actionType 链路要求（sendSmsCode 放返回值顶层，main.js 只读 r.sessionData）→ loginBySms 必然抛错
+  // 扫码已移除：hk4e panda 端点失效（MihoyoBBSTools issue#285，2026-09-13 未修，retcode:-5300），且全仓无界面入口
+  // 短信已移除：actionType 链路断裂（sendSmsCode 放返回值顶层，main.js 只读 r.sessionData）→ loginBySms 必然抛错
   const mGame = runner.loadGame('mihoyo');
   check('崩铁登录方式（网页登录第一位）', mGame.loginMethods.map(m => m.id).join(',') === 'web,cookie', mGame.loginMethods.map(m => m.id).join(','));
-  check('崩铁无扫码与短信登录函数', typeof mGame.startQrLogin === 'undefined' && typeof mGame.queryQrLogin === 'undefined'
+  check('崩铁已移除扫码与短信登录', typeof mGame.startQrLogin === 'undefined' && typeof mGame.queryQrLogin === 'undefined'
     && typeof mGame.completeQrLogin === 'undefined' && typeof mGame.sendSmsCode === 'undefined' && typeof mGame.loginBySms === 'undefined');
   check('崩铁网页登录 webMeta 完整', !!(mGame.loginMethods[0].webMeta
     && mGame.loginMethods[0].webMeta.loginUrl && mGame.loginMethods[0].webMeta.extractScript
@@ -302,14 +304,14 @@ const store = storage.create(TEST_DIR, {
     log: log.log,
     logger: log,
   });
-  // 账号粒度触发：先建一个启用账号再算下次触发
+  // 账号粒度触发（v2.6.0）：先建一个启用账号再算下次触发
   store.upsertAccount({ id: 'sched-a', game: 'kuro', nickname: '调度测试', enabled: true, credentials: { token: 'x' } });
   const ni = sched.nextRunInfo();
   check('下次触发计算（账号粒度）', !!ni && ni.ts > Date.now() && Array.isArray(ni.groups) &&
     ni.groups.some(g => g.gameId === 'kuro' && Array.isArray(g.accountIds) && g.accountIds.indexOf('sched-a') >= 0),
     ni ? ni.text + ' (' + ni.time + ')' : '无');
 
-  // 多账号同分钟归并：两个游戏同 12:30 → 归并为一个触发点、两组
+  // 多账号同分钟归并（v2.6.0）：两个游戏同 12:30 → 归并为一个触发点、两组
   // （先调高全局时间，避免 12:30 触发「全局最晚」钳制）
   const sMerge = store.loadSettings();
   sMerge.defaultTime = '23:59';
@@ -324,7 +326,7 @@ const store = storage.create(TEST_DIR, {
   store.removeAccount('merge-b');
   store.removeAccount('sched-a');   // 清理，避免影响后续补跑用例
 
-  // 补跑按账号粒度：把时间设到过去后 catchUp 只补跑「今日无结果记录的启用账号」
+  // 补跑按账号粒度（R3）：把时间设到过去后 catchUp 只补跑「今日无结果记录的启用账号」
   const s2 = store.loadSettings();
   s2.games.kuro.time = '00:01';
   s2.games.mihoyo.time = '00:02';
@@ -356,8 +358,8 @@ const store = storage.create(TEST_DIR, {
     '日志含失败提示（t-mihoyo）');
 
 
-  // ---------- persistUpdate 不得复活排队期间被删除的账号 ----------
-  console.log('\n=== runner 删除竞态 ===');
+  // ---------- v2.7.5 回归：persistUpdate 不得复活排队期间被删除的账号 ----------
+  console.log('\n=== v2.7.5 回归：runner 删除竞态 ===');
   {
     const reg2 = require('../core/game-registry.js').create({ userDir: path.resolve(__dirname, '..', '..', '脚本') });
     reg2.loadAll();
@@ -376,16 +378,16 @@ const store = storage.create(TEST_DIR, {
       'accounts=' + store.loadAccounts().map(a => a.id).join(','));
   }
 
-  // ---------- proc-output GBK 兼容解码 ----------
-  console.log('\n=== proc-output 解码 ===');
+  // ---------- v2.7.5 回归：proc-output GBK 兼容解码 ----------
+  console.log('\n=== v2.7.5 回归：proc-output 解码 ===');
   const { decodeProcOutput } = require('../core/proc-output.js');
   const gbkBytes = Buffer.from([0xC7, 0xA9, 0xB5, 0xBD, 0xD6, 0xFA, 0xCA, 0xD6]); // GBK「签到助手」
   check('GBK 字节流解码为中文', decodeProcOutput(gbkBytes) === '签到助手', decodeProcOutput(gbkBytes));
   check('UTF-8 字节流保持原样', decodeProcOutput(Buffer.from('签到助手-全局', 'utf8')) === '签到助手-全局');
   check('空/非法输入返回空串', decodeProcOutput(Buffer.alloc(0)) === '' && decodeProcOutput(null) === '');
 
-  // ---------- D3 storage 安装来源抛异常时回退上次快照 ----------
-  console.log('\n=== storage 扫描异常兜底 ===');
+  // ---------- v2.7.6 回归：D3 storage 安装来源抛异常时回退上次快照 ----------
+  console.log('\n=== v2.7.6 回归：storage 扫描异常兜底 ===');
   {
     let calls = 0;
     const d3Dir = path.join(os.tmpdir(), 'signin-app-core-test-d3');
@@ -400,8 +402,8 @@ const store = storage.create(TEST_DIR, {
     fs.rmSync(d3Dir, { recursive: true, force: true });
   }
 
-  // ---------- Z5 redact 出口脱敏 ----------
-  console.log('\n=== core/redact 脱敏 ===');
+  // ---------- v2.7.6 回归：Z5 redact 出口脱敏 ----------
+  console.log('\n=== v2.7.6 回归：core/redact 脱敏 ===');
   {
     const red = require('../core/redact.js');
     check('Z5 JSON token 值掩码', red.redact('{"code":0,"data":{"accessToken":"abc123def456","uid":123}}').indexOf('abc123def456') < 0);
@@ -412,8 +414,8 @@ const store = storage.create(TEST_DIR, {
     check('Z5 maskId 保留首尾', red.maskId('123456789') === '12****89');
   }
 
-  // ---------- D9 排队期间已删账号跳过且不写结果 ----------
-  console.log('\n=== runner 已删账号跳过 ===');
+  // ---------- v2.7.6 回归：D9 排队期间已删账号跳过且不写结果 ----------
+  console.log('\n=== v2.7.6 回归：runner 已删账号跳过 ===');
   {
     const runner3 = runnerMod.create({ storage: store, logger: log, notify: { notify: async () => 0 }, log: log.log, getGamePlugin: () => ({ name: 'fake', community: 'x', signin: async () => ({ result: { ok: true, title: 'x', lines: [] }, credentialsUpdate: null }) }) });
     const before = JSON.stringify(log.loadTodayResults());
@@ -423,8 +425,8 @@ const store = storage.create(TEST_DIR, {
     check('D9 跳过不写当日结果', before === after);
   }
 
-  // ---------- QQ 机器人（qqbot）纯函数 与 密钥通道 ----------
-  console.log('\n=== QQ 机器人日报 ===');
+  // ---------- v2.9.0 新增：QQ 机器人（qqbot）纯函数 与 密钥通道 ----------
+  console.log('\n=== v2.9.0：QQ 机器人日报 ===');
   {
     const qqbot = require('../core/qqbot.js');
     check('qqbot 纯函数导出齐全', ['create', 'composeDailyText', 'reportSendTime', 'explainCode'].every((k) => typeof qqbot[k] === 'function'));

@@ -3,14 +3,16 @@
  * 游戏社区签到助手 —— Electron 主进程
  *
  * 职责：
- * - 窗口/单实例/托盘/开机自启/关闭最小化到托盘
- * - 核心服务组装：storage(safeStorage 加密) + logger + notify + runner + scheduler
- * - IPC 白名单通道（渲染进程零 Node 权限，见 preload.js）
- * - 登录流程编排：全部由插件 loginMethods 驱动，框架按 kind 分发——
- * sms 短信验证码 / web 网页登录窗口（官方页 + 登录态提取，失败按 webMeta.degradation 降级提示）/
- * gui 浏览器登录（本地 127.0.0.1 页面，见 core/browser-login.js）/ paste 粘贴 token 或 Cookie。
- * - 系统计划任务同步（schtasks，任务名固定前缀「签到助手-」，绝不触碰其他任务）
- * - 自测模式：--selftest（临时数据目录 + 自动化断言） / --task-test（schtasks 真实往返）
+ *  - 窗口/单实例/托盘/开机自启/关闭最小化到托盘
+ *  - 核心服务组装：storage(safeStorage 加密) + logger + notify + runner + scheduler
+ *  - IPC 白名单通道（渲染进程零 Node 权限，见 preload.js）
+ *  - 登录流程编排：全部由插件 loginMethods 驱动，框架按 kind 分发——
+ *    sms 短信验证码 / web 网页登录窗口（官方页 + 登录态提取，失败按 webMeta.degradation 降级提示）/
+ *    gui 浏览器登录（本地 127.0.0.1 页面，见 core/browser-login.js）/ paste 粘贴 token 或 Cookie。
+ *    （password 与 qr 两条分发路径已于 2026-10-05 一并移除：无插件声明、渲染层也从不创建面板，
+ *      属不可达代码；官方插件侧的移除依据见 脚本/崩铁/index.js 与 脚本/异环/index.js 头部注释。）
+ *  - 系统计划任务同步（schtasks，任务名固定前缀「签到助手-」，绝不触碰其他任务）
+ *  - 自测模式：--selftest（临时数据目录 + 自动化断言） / --task-test（schtasks 真实往返）
  */
 
 const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, nativeImage, safeStorage, session, shell, dialog } = require('electron');
@@ -23,9 +25,9 @@ const loggerMod = require('./core/logger.js');
 const notifyMod = require('./core/notify.js');
 const runnerMod = require('./core/runner.js');
 const schedulerMod = require('./core/scheduler.js');
-const qqbotMod = require('./core/qqbot.js');   // QQ 机器人每日签到日报（零依赖，纯 Node）
+const qqbotMod = require('./core/qqbot.js');   // v2.9.0：QQ 机器人每日签到日报（零依赖，纯 Node）
 const browserLogin = require('./core/browser-login.js'); // 本地浏览器登录界面服务器（通用 gui 登录 infra）
-const { decodeProcOutput } = require('./core/proc-output.js'); // reg/schtasks 输出 GBK 兼容解码
+const { decodeProcOutput } = require('./core/proc-output.js'); // reg/schtasks 输出 GBK 兼容解码（v2.7.5 修复）
 
 // ---------------------------------------------------------------------------
 // 无 GUI 冒烟模式：ELECTRON_RUN_AS_NODE=1 时以纯 Node 方式加载全部模块，
@@ -53,7 +55,7 @@ const APP_NAME = '游戏社区签到助手';
 const TASK_PREFIX = '签到助手-';           // 本应用系统任务前缀（安全边界）
 const gameRegistryMod = require('./core/game-registry.js');  // 游戏注册表（扫描「脚本」目录，放进去即自动读取，框架不内置脚本）
 const MASK = '********';                    // 通知密钥掩码占位
-const IPC_CHANNELS = [                      // IPC 白名单（--selftest 校验用）
+const IPC_CHANNELS = [                      // 契约 §5 白名单（--selftest 校验用）
   'settings:load', 'settings:save',
   'games:list', 'games:openUserDir', 'games:reload', 'games:add', 'games:remove',
   'accounts:list', 'accounts:remove', 'accounts:setEnabled', 'accounts:setTime',
@@ -65,7 +67,7 @@ const IPC_CHANNELS = [                      // IPC 白名单（--selftest 校验
   'logs:recent',
   'results:today', 'results:history', 'calendar:month',
   'notify:test',
-  'qqbot:bind:start', 'qqbot:status', 'qqbot:bind:cancel',   // QQ 机器人绑定（临时 WebSocket）
+  'qqbot:bind:start', 'qqbot:status', 'qqbot:bind:cancel',   // v2.9.0：QQ 机器人绑定（临时 WebSocket）
   'system:autostart:get', 'system:autostart:set',
   'system:task:status', 'system:task:sync',
   'scheduler:info',
@@ -122,9 +124,9 @@ const state = {
   webWindows: new Map(),   // game -> BrowserWindow（网页登录窗口）
   webLoginBound: {},       // game -> bool（网页登录是否已完成绑定，用于关闭时降级判定）
   guiServers: new Map(),   // game -> 浏览器登录界面服务器（t17；键 game）
-  dailyMaintainTimer: null,   // 每日日志保留维护定时器（每日清理超过保留期的记录）
-  qqReportTimer: null,     // QQ 机器人日报检查定时器（每分钟；含启动补发）
-  qqReportState: null,     // QQ 日报发送状态磁盘缓存（lastDate/lastAttempt/noRec* 等）
+  dailyMaintainTimer: null,// t5/尝试2：每日日志保留维护定时器（每日清理超过保留期的记录）
+  qqReportTimer: null,     // v2.9.0：QQ 机器人日报检查定时器（每分钟；含启动补发）
+  qqReportState: null,     // v2.9.0：QQ 日报发送状态磁盘缓存（lastDate/lastAttempt/noRec* 等）
 };
 
 // ---------------------------------------------------------------------------
@@ -145,17 +147,17 @@ function validHHmm(v) {
   return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
 }
 
-/** 调度重排：账号级变更（启用/改期/新绑定）后也须重排，改动即时生效；
+/** 调度重排（v2.7.6 Z4）：账号级变更（启用/改期/新绑定）后也须重排，改动即时生效；
  * 原实现全工程仅 settings:save 一处调用，导致改账号时间要等下个自然触发点才生效。失败不阻断调用方。 */
 function rescheduleSafe() {
   try { if (state.services && state.services.scheduler) state.services.scheduler.reschedule(); }
   catch (e) { log('⚠️ 调度重排失败：' + (e.message || e)); }
 }
 
-/** 调度相关保存点后顺带补跑检查（幂等：只补「生效时间已过且今日无结果」的启用账号）。
- * 不 await——补跑可能耗时数分钟，不能拖住 IPC 响应；执行过程经日志/进度事件可见。
- * 场景：把时间改到今天已过时刻、重新启用游戏/账号后，当天立即补签而非等到明天。
- * 调度器内部已把 catchUp 调用串行化，与定时触发的补跑检查并发安全。 */
+/** v2.7.7 ⑤：调度相关保存点后顺带补跑检查（幂等：只补「生效时间已过且今日无结果」的启用账号）。
+ *  不 await——补跑可能耗时数分钟，不能拖住 IPC 响应；执行过程经日志/进度事件可见。
+ *  场景：把时间改到今天已过时刻、重新启用游戏/账号后，当天立即补签而非等到明天。
+ *  调度器内部已把 catchUp 调用串行化，与定时触发的补跑检查并发安全。 */
 function catchUpSafe() {
   try {
     if (state.services && state.services.scheduler) {
@@ -173,7 +175,7 @@ function send(channel, payload) {
 let gameRegistry = null;
 function getGameRegistry() { return gameRegistry; }
 
-/** 游戏数据清理链（插件契约）——「界面卸载」与「孤儿目录清理」共用：
+/** 游戏数据清理链（契约 §6）——「界面卸载」与「孤儿目录清理」共用：
  * 删账号/设置（storage.removeGameData）→ 清登录会话/关网页登录窗口 → 同步系统任务。
  * 插件目录与 onRemove 钩子由注册表侧负责（界面卸载走 reg.removePlugin；孤儿路径无插件可调）。 */
 async function cleanupGameData(gameId) {
@@ -191,7 +193,7 @@ async function cleanupGameData(gameId) {
 }
 
 /**
- * 插件契约：扫描时自动清理「用户直接删除插件目录（不经界面）」留下的孤儿数据。
+ * 契约 §6：扫描时自动清理「用户直接删除插件目录（不经界面）」留下的孤儿数据。
  * 流程（无插件可调 onRemove，日志注明）：删该游戏全部账号（storage.removeGameData 含加密凭据）
  * → 删 settings.games[id] → 清登录会话/关网页窗口 → syncSystemTasks 删对应 签到助手-* 系统任务。
  * @returns {Promise<Array<{gameId:string, removedAccounts:number}>>}（gameId 为插件 id；目录名≠id 时日志附带目录名）
@@ -199,15 +201,15 @@ async function cleanupGameData(gameId) {
 async function cleanupDisappearedGames() {
   const reg = getGameRegistry();
   if (!reg || !state.services) return [];
-  const disappeared = reg.getDisappeared();   // [{ dir, id|null }]（id 为目录名→插件id 映射结果）
+  const disappeared = reg.getDisappeared();   // v2.7.6 Z1：[{ dir, id|null }]（id 为目录名→插件id 映射结果）
   const cleaned = [];
   for (const item of disappeared) {
     const dirName = item && item.dir;
     let gameId = item && item.id;
     try {
       if (!gameId) {
-        // 状态文件里没有 id 映射时：仅当该目录名下确实存在数据
-        // （即目录名恰好===插件 id）才按目录名清理；否则如实跳过，
+        // 旧版状态文件无 id 映射（v2.7.5 及以前）：仅当该目录名下确实存在数据
+        // （历史上「目录名恰好===插件id」的情况）才按目录名清理；否则如实跳过，
         // 杜绝把目录名当 id 清理不到数据却报"已清理"
         const s = state.services.storage.loadSettings();
         const hasData = state.services.storage.getAccountsByGame(dirName).length > 0 || !!(s.games && s.games[dirName]);
@@ -236,7 +238,7 @@ function getWebMeta(plugin) {
   const m = getLoginMethod(plugin, 'web');
   return (m && m.webMeta) || null;
 }
-/** 账号摘要字段（显示名/告警/cookieValid）由插件 describeCredential 提供（插件契约） */
+/** 账号摘要字段（显示名/告警/cookieValid）由插件 describeCredential 提供（t5 契约 §5.1） */
 function describeCredential(plugin, cred) {
   if (plugin && typeof plugin.describeCredential === 'function') {
     const d = plugin.describeCredential(cred || {});
@@ -286,7 +288,7 @@ function ipcSafeGames(list) {
   return (list || []).map(ipcSafeGame);
 }
 
-/** 按 kind 分发的登录动作表（插件契约）：不在 main.js 写 per-game if/else，插件自带回调优先、模块级兼容回退 */
+/** 按 kind 分发的登录动作表（t5 契约 §5.1）：不在 main.js 写 per-game if/else，插件自带回调优先、模块级兼容回退 */
 const LOGIN_KIND = {
   sms: {
     send(plugin, ctx, args) {
@@ -315,6 +317,8 @@ const LOGIN_KIND = {
       return ctx.fp ? fn(String(args.raw), ctx.fp, ctx.oldCred || null) : fn(String(args.raw));
     },
   },
+  // password 与 qr 两条分发路径已于 2026-10-05 移除：没有任何插件声明这两种 kind，
+  // 渲染层也从不创建对应面板，属不可达代码。移除依据见 脚本/崩铁/index.js 与 脚本/异环/index.js 头部注释。
 };
 
 /**
@@ -339,16 +343,19 @@ function existingFingerprint(gameId) {
 
 /**
  * 构造登录上下文的设备指纹，取值顺序：
- * ① 同游戏已有账号凭据里的指纹（existingFingerprint）——最权威；
- * ② 按游戏持久化的指纹（storage.getFingerprint，落 <dataDir>/fingerprints.json）——解决首次登录无账号可借；
- * ③ 都没有才让插件新生成一份，并**立即持久化**，本游戏后续登录复用同一份。
+ *   ① 同游戏已有账号凭据里的指纹（existingFingerprint）——最权威；
+ *   ② 按游戏持久化的指纹（storage.getFingerprint，落 <dataDir>/fingerprints.json）——解决首次登录无账号可借；
+ *   ③ 都没有才让插件新生成一份，并**立即持久化**，本游戏后续登录复用同一份。
  *
- * 为什么这么做：同一账号反复更换设备标识容易触发服务端风控（外部项目 SkyBlue997/tjd-daily 亦注明
- * 「同账号每次登录建议复用同一份指纹」「--new-device 老账号慎用，可能触发风控」）。若首次登录就生成
- * 全新随机指纹，还会形成鸡生蛋：要收到验证码得先有账号可借指纹，要有账号得先收到验证码。
+ * 为什么要这么做：外部项目 SkyBlue997/tjd-daily 注明「同账号每次登录建议复用同一份指纹」、
+ * 「--new-device 老账号慎用，可能触发风控」。修复前没有 ②，首次登录必然落到 ③ 拿全新随机指纹，
+ * 正是风控高发场景，还形成鸡生蛋（要收到验证码得先有账号可借指纹，要有账号得先收到验证码）。
+ * 历史上「异环短信收不到」被误判为「官方风控、非本应用缺陷」，真实疑点就在这里（2026-10-05 修）。
  *
- * 排查「收不到验证码」时，先查 fingerprints.json 是否被清空/损坏、是否多机共用同一数据目录，
- * 再怀疑服务端。
+ * ✅ 2026-10-05 已真机实测确认：用**新手机号**走首次登录场景（此前无该游戏账号、fingerprints.json
+ *   也为空）发码与登录均成功——即「首次登录必换新指纹」确为当年「短信收不到」的根因，本修复有效。
+ * 保留提醒：若将来再出现收不到码，先查 fingerprints.json 是否被清空/损坏、是否多机共用同一数据目录，
+ *   再怀疑服务端。
  */
 function makeLoginCtx(plugin, gameId) {
   let fp = null;
@@ -388,7 +395,7 @@ function accountSummary(account) {
     game: account.game,
     nickname: account.nickname || d.nickname || '',
     enabled: account.enabled !== false,
-    time: account.time || '',                    // 账号自定义时间（空=跟随游戏/全局）
+    time: account.time || '',                    // v2.6.0：账号自定义时间（空=跟随游戏/全局）
     lastResult: account.lastResult || null,
     roleWarning: d.warning || '',
     cookieValid: d.cookieValid,
@@ -439,15 +446,15 @@ function makeCrypto() {
 function createServices() {
   const dataDir = ARGS.dataDir || storageMod.defaultDataDir();
   const crypto = makeCrypto();
-  // t7/t10：已安装游戏供应器（注册表 list → 每游戏默认 enabled；未就绪/未注入时 storage 回落 BUILTIN_GAME_DEFAULTS）
+  // t7/t10：已安装游戏供应器（注册表 list() → 每游戏默认 enabled；未就绪/未注入时 storage 回落 BUILTIN_GAME_DEFAULTS）
   // t10：内置游戏默认启用（source==='builtin'），用户插件按插件 defaultEnabled（缺省 false）
   const installedGames = () => { const reg = getGameRegistry(); if (!reg) return null; return reg.list().map(p => ({ id: p.id, defaultEnabled: !!p.defaultEnabled, time: p.defaultTime || '' })); };
   const storage = storageMod.create(dataDir, Object.assign({}, crypto, { installedGames }));
   const lg = makeLogger(dataDir);
-  // 游戏注册表（只扫 defaultScriptsDir 返回的「脚本」目录，框架不内置脚本）
+  // 游戏注册表（只扫 defaultScriptsDir() 返回的「脚本」目录，框架不内置脚本）
   gameRegistry = gameRegistryMod.create({ dataDir, userDir: defaultScriptsDir() });   // 脚本目录=免安装版内/脚本（或开发根/脚本），放进去即自动读取
   gameRegistry.loadAll();
-  // 启动扫描——用户直接删除插件目录（上次存在、本次消失）→ 自动清理孤儿账号/设置/会话/系统任务
+  // t12/F3：契约 §6 启动扫描——用户直接删除插件目录（上次存在、本次消失）→ 自动清理孤儿账号/设置/会话/系统任务
   // （无插件可调 onRemove，日志注明；自测模式不重复跑，selftest 内已专门断言清理链）
   if (!ARGS.selftest && !ARGS.taskTest) {
     cleanupDisappearedGames().catch((e) => log('⚠️ 启动孤儿数据清理异常：' + (e && e.message || e)));
@@ -459,7 +466,7 @@ function createServices() {
     logger: lg.logger,
     push: lg.push,
     gameRegistry,
-    qqbot: qqbotMod.create({ log: (m) => lg.push(m) }),   // QQ 机器人（日报/绑定/测试）
+    qqbot: qqbotMod.create({ log: (m) => lg.push(m) }),   // v2.9.0：QQ 机器人（日报/绑定/测试）
   };
 
   const runner = runnerMod.create({
@@ -498,7 +505,7 @@ function createServices() {
 }
 
 // ---------------------------------------------------------------------------
-// QQ 机器人日报：每天一条「签到日报」+ 启动/过点补发
+// QQ 机器人日报（v2.9.0）：每天一条「签到日报」+ 启动/过点补发
 // 与签到主流程完全解耦：只读签到结果与账号清单；任何异常只写日志。
 // ---------------------------------------------------------------------------
 function qqReportStateFile() {
@@ -624,9 +631,9 @@ function createMainWindow(opts) {
     icon: nativeImage.createFromDataURL('data:image/png;base64,' + ICON_B64),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,   // 安全基线
-      nodeIntegration: false,   // 安全基线
-      sandbox: true,            // 安全基线
+      contextIsolation: true,   // S.3 契约
+      nodeIntegration: false,   // S.3 契约
+      sandbox: true,            // S.3 契约
       spellcheck: false,
     },
   });
@@ -668,7 +675,7 @@ function createMainWindow(opts) {
     }
   });
 
-  // 托盘隐藏时通知 renderer 释放日志流等 DOM，降低常驻内存（不影响主进程调度）
+  // v2.7.3：托盘隐藏时通知 renderer 释放日志流等 DOM，降低常驻内存（不影响主进程调度）
   win.on('hide', () => { send('event:visibility', { visible: false }); });
   win.on('show', () => { send('event:visibility', { visible: true }); });
   win.on('closed', () => { state.mainWindow = null; });
@@ -678,7 +685,7 @@ function createMainWindow(opts) {
 function buildTrayMenu() {
   const svc = state.services;
   let nextText = '未启用';
-  // nextRunInfo 返回 {ts,time,groups,text}，没有 gameId 字段——
+  // v2.7.5 修复：nextRunInfo() 返回 {ts,time,groups,text}，没有 gameId 字段——
   // 原写法托盘固定显示「（undefined）」。改用 groups 描述游戏×账号数
   try {
     const n = svc.scheduler.nextRunInfo();
@@ -760,7 +767,7 @@ function runSchtasks(args) {
   return new Promise((resolve) => {
     let req;
     try {
-      // zh-CN Windows 下 schtasks 输出 GBK 字节，按 utf8 解码中文全乱码，
+      // v2.7.5 修复：zh-CN Windows 下 schtasks 输出 GBK 字节，按 utf8 解码中文全乱码，
       // 导致「签到助手-*」任务名匹配失败（遗留任务永远无法识别/清理）。改为 buffer 收集 + GBK 兼容解码。
       req = execFile('schtasks', args, { windowsHide: true, timeout: 15000, encoding: 'buffer' }, (err, stdout, stderr) => {
         if (err && (err.code === 'EPERM' || err.errno === -4048)) {
@@ -818,13 +825,13 @@ function taskName(gameId) {
   return TASK_PREFIX + gameName(gameId);
 }
 
-/** 全局兜底系统任务名 */
+/** 全局兜底系统任务名（v2.6.0：只建全局统一时间一个任务） */
 function globalTaskName() {
   return TASK_PREFIX + '全局';
 }
 
 /**
- * 本应用应管理的任务：只建一个「签到助手-全局」任务，时间=全局统一时间。
+ * 本应用应管理的任务（v2.6.0 定稿）：只建一个「签到助手-全局」任务，时间=全局统一时间。
  * 游戏/账号自定义时间不建任务（靠内置定时器挂后台）；应用未运行时由全局任务拉起 catchUp 兜底补签。
  * settings.useSystemTask=false 时返回空数组 → 删除全部本应用任务。
  */
@@ -851,7 +858,7 @@ async function queryAllAppTasks() {
   for (const line of r.stdout.split(/\r?\n/)) {
     const m = /^"([^"]+)","([^"]*)","([^"]*)"/.exec(line.trim());
     if (!m) continue;
-    // schtasks CSV 的 TaskName 带前导反斜杠（如 \签到助手-全局），
+    // v2.7.5 修复：schtasks CSV 的 TaskName 带前导反斜杠（如 \签到助手-全局），
     // 不剥离则 startsWith('签到助手-') 永远 false，旧任务永远识别不到、无法清理
     const name = m[1].replace(/^\\+/, '');
     if (name.startsWith(TASK_PREFIX)) out.push({ name, time: m[2], status: m[3] });
@@ -878,7 +885,7 @@ async function deleteTask(name) {
 
 /**
  * 同步系统任务到当前设置。dryRun=true 只返回将执行的命令，不真正操作。
- * 安全边界：只增删改 taskName 生成（签到助手-* 前缀）的任务。
+ * 安全边界：只增删改 taskName() 生成（签到助手-* 前缀）的任务。
  */
 async function syncSystemTasks(settings, dryRun) {
   const want = plannedTasks(settings);
@@ -946,7 +953,7 @@ async function finishLogin(gameId, credentials, nickname) {
   const n = nickname || d.nickname || '';
   const account = newAccount(gameId, credentials, n);
   state.services.storage.upsertAccount(account);
-  rescheduleSafe();   // 新账号立即纳入调度
+  rescheduleSafe();   // v2.7.6 Z4：新账号立即纳入调度
   send('event:accounts', { reason: 'added' });
   return accountSummary(account);
 }
@@ -1007,8 +1014,8 @@ async function handleSmsLogin({ game, mobile, code, session }) {
  * 官方网页登录窗口（kind:'web'）。当前声明者：库街区（鸣潮）、米游社（崩铁）。
  * 塔吉多（异环）**没有** webMeta——真走到这里会被下方 handleWebOpen 直接回「该游戏暂不支持网页登录窗口」。
  * 流程：webMeta.loginUrl 加载官方页 → did-finish-load/did-navigate 后定时执行
- * webMeta.extractScript（webContents.executeJavaScript）→ webMeta.validate →
- * 校验通过则 webMeta.buildCredentials → finishLogin + webLoginSuccess（自动绑定）。
+ * webMeta.extractScript（webContents.executeJavaScript）→ webMeta.validate() →
+ * 校验通过则 webMeta.buildCredentials() → finishLogin() + webLoginSuccess()（自动绑定）。
  * 框架会把窗口 session 的 Cookie 注入 extracted._cookies（[{name,domain,value}]）供 validate/buildCredentials 用，
  * 这样 HttpOnly 的 cookie_token_v2 也能拿到（页面内 document.cookie 读不到它）。
  * 窗口打开期间提取失败不推送降级（用户可能尚未登录）；窗口关闭仍未绑定 → 按 webMeta.degradation 提示降级。
@@ -1068,7 +1075,7 @@ async function handleWebOpen({ game }) {
     try {
       const extractScript = typeof meta.extractScript === 'function' ? meta.extractScript() : (meta.extractScript || '');
       let extracted = await win.webContents.executeJavaScript(extractScript);
-      // 插件脚本可能返回原始值（非对象）——先包装为对象，
+      // v2.7.6 D8：插件脚本可能返回原始值（非对象）——先包装为对象，
       // 否则下方 extracted._cookies 赋值在 strict 模式抛 TypeError（catch 内再赋值再抛），登录提取链中断
       if (!extracted || typeof extracted !== 'object') extracted = { value: extracted == null ? null : extracted };
       // 通用扩展：附加 HttpOnly cookie（executeJavaScript 读不到，仅主进程 session.cookies 能读；
@@ -1081,7 +1088,7 @@ async function handleWebOpen({ game }) {
       if (v.usable) {
         const cred = await meta.buildCredentials(extracted);
         // F1 守卫：同游戏同 token 已存在账号 → 跳过重复建档（复用窗口/重新打开会话时页面仍保留旧登录态的场景）
-        // 仅当本凭据确有 token 时才做 token 去重——米游社等凭据无 token 字段，
+        // v2.7.5 修复：仅当本凭据确有 token 时才做 token 去重——米游社等凭据无 token 字段，
         // 原写法 undefined===undefined 恒真，会把已有账号误判为重复，导致无法用网页登录添加第二个账号
         let dup = null;
         try {
@@ -1242,7 +1249,7 @@ async function startGuiServer(game, plugin) {
       smsSend: async (b) => {
         const phone = String((b && b.phone) || '').trim();
         if (!/^1[0-9]{10}$/.test(phone)) return { ok: false, message: '手机号格式错误（需 11 位数字）' };
-        // 与 App 内短信路径对齐——建立 smsSession 并保存 sessionData/指纹，
+        // v2.7.6 D14：与 App 内短信路径对齐——建立 smsSession 并保存 sessionData/指纹，
         // 供 smsLogin 复用（否则需要 actionType/fp 的插件在两路径行为不一致）
         const sid = smsSession(phone);
         const sess = state.loginSessions.get(sid);
@@ -1259,7 +1266,7 @@ async function startGuiServer(game, plugin) {
         const code = String((b && b.code) || '').trim();
         if (!/^1[0-9]{10}$/.test(phone)) return { ok: false, message: '手机号格式错误（需 11 位数字）' };
         if (!/^[0-9]{4,8}$/.test(code)) return { ok: false, message: '验证码格式错误（需 4-8 位数字）' };
-        // 复用 smsSend 建立的会话（actionType/指纹），与 App 内路径行为一致
+        // v2.7.6 D14：复用 smsSend 建立的会话（actionType/指纹），与 App 内路径行为一致
         const sess = findSmsSession(game, phone);
         const ctx = makeLoginCtx(plugin, game);
         if (sess && sess.actionType) ctx.actionType = sess.actionType;
@@ -1328,7 +1335,7 @@ function registerIpc() {
   // 设置
   ipcMain.handle('settings:load', () => {
     const s = svc().storage.loadSettings();
-    // 通知密钥掩码下发（界面不显明文）
+    // 通知密钥掩码下发（S.2：界面不显明文）
     const masked = JSON.parse(JSON.stringify(s));
     const cfg = masked.notify || {};
     const configured = {};
@@ -1367,7 +1374,7 @@ function registerIpc() {
           if (!t) return { ok: false, error: gameName(g) + ' 签到时间格式不正确（应为 HH:mm）' };
           next.games[g].time = t;
         } else if (gs.time === '') {
-          // 清空 = 该游戏跟随全局统一时间
+          // v2.6.0：清空 = 该游戏跟随全局统一时间
           delete next.games[g].time;
         }
       }
@@ -1387,7 +1394,7 @@ function registerIpc() {
         }
         if (v.template !== undefined && k === 'pushplus') next.notify[k].template = v.template;
         if (k === 'qqbot' && v.appId !== undefined) {
-          // AppID 为普通字段直接保存；appSecret 走上方法通用掩码逻辑；openid 由绑定流程写入，忽略表单值
+          // v2.9.0：AppID 为普通字段直接保存；appSecret 走上方法通用掩码逻辑；openid 由绑定流程写入，忽略表单值
           if (!next.notify.qqbot) next.notify.qqbot = {};
           next.notify.qqbot.appId = String(v.appId).trim();
         }
@@ -1402,8 +1409,8 @@ function registerIpc() {
         next.closeBehavior = incoming.closeBehavior;
       }
 
-      // 全局统一时间必须最晚（兜底成立的前提）——任何游戏/账号时间不得晚于全局
-      // 磁盘存量脏数据（手工改文件等产生）走「自动钳制 + 提示」，不永久阻塞一切保存——
+      // v2.6.0 强制约束：全局统一时间必须最晚（兜底成立的前提）——任何游戏/账号时间不得晚于全局
+      // v2.7.6 D10：磁盘存量脏数据（旧版本/手工改文件产生）改为「自动钳制+提示」而非永久阻塞一切保存——
       // 原实现一旦存在脏账号时间，任意 settings:save（含开关切换）都被拦截且无自愈路径
       {
         const dt = validHHmm(next.defaultTime);
@@ -1430,7 +1437,7 @@ function registerIpc() {
       svc().push('⚙️ 设置已保存（默认时间 ' + next.defaultTime + '，系统任务 ' + (next.useSystemTask ? '开启' : '关闭') + '，关闭窗口：' + (next.closeBehavior === 'exit' ? '直接退出' : '隐藏到托盘') + '）');
       if (incoming.closeBehavior !== undefined && incoming.closeBehavior !== old.closeBehavior) {
         // t13：关闭行为变更说明（与定时方式联动提示）
-        // exit 文案按系统任务开关分支——未开启时如实说明「退出后到点不会自动拉起」，
+        // v2.7.7 ⑥：exit 文案按系统任务开关分支——未开启时如实说明「退出后到点不会自动拉起」，
         // 原文案无条件宣称由系统计划任务兜底，与事实相反（useSystemTask 默认 false）
         svc().push(incoming.closeBehavior === 'exit'
           ? (next.useSystemTask
@@ -1447,7 +1454,7 @@ function registerIpc() {
 
       // 开机自启
       if (typeof incoming.autoStart === 'boolean') applyAutostart(incoming.autoStart);
-      // 调度重排（改时间立即生效）+ 补跑检查
+      // 调度重排（改时间立即生效）+ 补跑检查（v2.7.7 ⑤：时间回退/开关变更后当天立即补签）
       svc().scheduler.reschedule();
       catchUpSafe();
       // 系统任务同步（改时间自动重写）
@@ -1496,13 +1503,13 @@ function registerIpc() {
     const acc = list.find(a => a.id === id);
     if (!acc) return { ok: false, error: '账号不存在' };
     svc().storage.upsertAccount(Object.assign({}, acc, { enabled }));
-    rescheduleSafe();   // 启用/禁用立即生效
-    catchUpSafe();      // 重新启用且生效时间已过时当天立即补签
+    rescheduleSafe();   // v2.7.6 Z4：启用/禁用立即生效
+    catchUpSafe();      // v2.7.7 ⑤：重新启用且生效时间已过时当天立即补签
     send('event:accounts', { reason: 'updated' });
     return { ok: true };
   });
 
-  // 账号自定义签到时间：'' 或空=清除（跟随游戏/全局）；非空须 ≤ 全局统一时间
+  // 账号自定义签到时间（v2.6.0）：'' 或空=清除（跟随游戏/全局）；非空须 ≤ 全局统一时间
   ipcMain.handle('accounts:setTime', (_e, { id, time } = {}) => {
     if (!id || typeof id !== 'string') return { ok: false, error: '参数错误' };
     const s = svc().storage.loadSettings();
@@ -1518,8 +1525,8 @@ function registerIpc() {
     const updated = Object.assign({}, acc);
     if (t) updated.time = t; else delete updated.time;
     svc().storage.upsertAccount(updated);
-    rescheduleSafe();   // 改期立即生效（原缺陷：要等下个自然触发点/catchUp 兜底，时间偏晚）
-    catchUpSafe();      // 改成已过时刻时当天立即补签，而非等到明天
+    rescheduleSafe();   // v2.7.6 Z4：改期立即生效（原缺陷：要等下个自然触发点/catchUp 兜底，时间偏晚）
+    catchUpSafe();      // v2.7.7 ⑤：改成已过时刻时当天立即补签，而非等到明天
     send('event:accounts', { reason: 'updated' });
     svc().push('🕐 账号签到时间' + (t ? '设为 ' + t : '改为跟随游戏/全局') + '：' + (acc.nickname || id));
     return { ok: true };
@@ -1542,7 +1549,7 @@ function registerIpc() {
     const reg = getGameRegistry();
     if (!reg) return { ok: false, error: '注册表未就绪' };
     reg.loadAll();
-    await cleanupDisappearedGames();   // 插件契约：直接删目录 → 自动清理孤儿账号/设置/会话/系统任务
+    await cleanupDisappearedGames();   // 契约 §6：直接删目录 → 自动清理孤儿账号/设置/会话/系统任务
     const games = ipcSafeGames(reg.list());
     const loadErrors = reg.getLoadErrors();
     svc().push('🔄 游戏列表已刷新');
@@ -1589,7 +1596,7 @@ function registerIpc() {
       }
     }
     const dest = path.join(reg.userDir, dirName);
-    const samePath = path.resolve(src) === path.resolve(dest);   // 源即目标（在插件目录内选已有插件重新导入）
+    const samePath = path.resolve(src) === path.resolve(dest);   // v2.7.6 D2：源即目标（在插件目录内选已有插件重新导入）
     try {
       if (!samePath) {
         if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });   // 覆盖导入
@@ -1602,7 +1609,7 @@ function registerIpc() {
     reg.loadAll();
     const plugin = reg.get(id);
     if (!plugin) {
-      if (!samePath) { try { fs.rmSync(dest, { recursive: true, force: true }); } catch (e) { /* 回滚失败不阻断 */ } }   // 源即目标时不得删用户目录
+      if (!samePath) { try { fs.rmSync(dest, { recursive: true, force: true }); } catch (e) { /* 回滚失败不阻断 */ } }   // v2.7.6 D2：源即目标时不得删用户目录
       const errs = reg.getLoadErrors().filter(e => e.idHint === dirName).map(e => (e.errors || []).join('；')).join('；');
       return { ok: false, error: '插件校验失败：' + (errs || '未知错误') };
     }
@@ -1612,7 +1619,7 @@ function registerIpc() {
     return { ok: true, gameId: id, game: ipcSafeGame(plugin) };
   });
 
-  /** 卸载用户插件（插件契约清理链：注册表侧 onRemove 钩子+删目录 → cleanupGameData 删账号/设置/会话/系统任务） */
+  /** 卸载用户插件（契约 §6 清理链：注册表侧 onRemove 钩子+删目录 → cleanupGameData 删账号/设置/会话/系统任务） */
   ipcMain.handle('games:remove', async (_e, { gameId } = {}) => {
     const reg = getGameRegistry();
     if (!reg || !gameId) return { ok: false, error: '参数错误' };
@@ -1685,7 +1692,7 @@ function registerIpc() {
     }
   });
 
-  // 签到日历：某月按游戏逐日结果状态 {games: { [gameId]: { 'YYYY-MM-DD': {status,total,ok,fail,hasData} } }}
+  // 签到日历（v2.6.0）：某月按游戏逐日结果状态 {games: { [gameId]: { 'YYYY-MM-DD': {status,total,ok,fail,hasData} } }}
   ipcMain.handle('calendar:month', (_e, { year, month } = {}) => {
     year = parseInt(year, 10); month = parseInt(month, 10);
     if (!Number.isInteger(year) || year < 1970 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
@@ -1706,7 +1713,7 @@ function registerIpc() {
   ipcMain.handle('notify:test', async (_e, { channel, cfg } = {}) => {
     const channels = ['serverchan', 'pushplus', 'wecom', 'email', 'qqbot'];
     if (!channels.includes(channel)) return { ok: false, error: '未知渠道' };
-    // QQ 机器人测试——需已绑定 openid；AppSecret 掩码未改动时用已存值
+    // v2.9.0：QQ 机器人测试——需已绑定 openid；AppSecret 掩码未改动时用已存值
     if (channel === 'qqbot') {
       const savedQ = svc().storage.loadSettings().notify.qqbot || {};
       const appId = (cfg && cfg.appId != null ? String(cfg.appId).trim() : '') || savedQ.appId || '';
@@ -1739,7 +1746,7 @@ function registerIpc() {
     }
   });
 
-  // QQ 机器人绑定：临时 WebSocket 收一条用户消息取身份（openid）
+  // QQ 机器人绑定（v2.9.0）：临时 WebSocket 收一条用户消息取身份（openid）
   ipcMain.handle('qqbot:bind:start', () => {
     const cfg = svc().storage.loadSettings().notify.qqbot || {};
     if (!cfg.appId || !cfg.appSecret) return { ok: false, error: '请先填写并保存 AppID 与 AppSecret' };
@@ -1897,7 +1904,7 @@ if (shouldQuit) {
     state.services = createServices();
     let selftest = null;
     if (ARGS.selftest || ARGS.taskTest) {
-      // scripts/ 不进 app.asar（生产路径只能 require 会进包的文件），打包版 require 必然失败——
+      // v2.7.6 D13：scripts/ 不进 app.asar（AGENTS.md 删除/改名安全：生产路径只能 require 会进包的文件），打包版 require 必然失败——
       // 捕获后提示「自测仅限开发目录」而非启动即崩
       try {
         selftest = require('./scripts/selftest.js')({
@@ -1945,7 +1952,7 @@ if (shouldQuit) {
     // 调度启动（含开机补跑）
     state.services.scheduler.start();
 
-    // QQ 机器人日报定时检查（每分钟；含启动补发。未配置/未绑定则静默跳过）
+    // v2.9.0：QQ 机器人日报定时检查（每分钟；含启动补发。未配置/未绑定则静默跳过）
     startQqReportTimer();
 
     // 系统任务同步：设置开启时启动即校准一次（幂等）
@@ -1989,7 +1996,7 @@ if (shouldQuit) {
   });
 
   app.on('window-all-closed', () => {
-    // 托盘常驻：注册本事件即阻止默认退出行为；真正退出走 app.quit（state.quitting=true）
+    // 托盘常驻：注册本事件即阻止默认退出行为；真正退出走 app.quit()（state.quitting=true）
     /* no-op */
   });
 

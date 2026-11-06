@@ -6,13 +6,13 @@
 // 本脚本专项体检，删旧版本目录前后、发版后、或任何怀疑引用失效时运行：npm run test:refs
 //
 // 覆盖 4 处引用：
-// 1) HKCU Run 自启键 electron.app.游戏社区签到助手（开机自启）
-// 2) 计划任务「签到助手-全局」（直读 Tasks 存储 XML；schtasks 在受限环境不可用且查询会整体报错）
-// 3) 桌面 + 开始菜单快捷方式（.lnk 目标，GBK/UTF-16 双通道解析）
-// 4) 通知激活器 CLSID {EEB97C84-1080-4E69-9E20-4B7A9DCD5F64} LocalServer32
+//   1) HKCU Run 自启键 electron.app.游戏社区签到助手（开机自启）
+//   2) 计划任务「签到助手-全局」（直读 Tasks 存储 XML；schtasks 在受限环境不可用且查询会整体报错）
+//   3) 桌面 + 开始菜单快捷方式（.lnk 目标，GBK/UTF-16 双通道解析）
+//   4) 通知激活器 CLSID {EEB97C84-1080-4E69-9E20-4B7A9DCD5F64} LocalServer32
 //
 // 判定：引用存在但指向旧版本/不存在路径 = FAIL（退出码 1）；
-// 引用未配置（用户未开启自启等）或受限环境读不到 = WARN（不失败）。
+//       引用未配置（用户未开启自启等）或受限环境读不到 = WARN（不失败）。
 // 修复：发现 FAIL 后跑 npm run release:relink 重链 4 处系统引用（勿手工改注册表/lnk）。
 
 var fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
@@ -126,7 +126,7 @@ function checkLnk(label, lnkPath) {
   if (st.indexOf('stale:') === 0) return rep(label, 'FAIL', '指向旧版本「' + st.slice(6) + '」，点击将打不开应用');
   return rep(label, 'WARN', '无法从 lnk 解析出目标路径，请人工确认: ' + lnkPath);
 }
-// 桌面目录：候选链 = Shell Folders（已展开、反映重定向）→ User Shell Folders
+// 桌面目录（v2.7.6 D20）：候选链 = Shell Folders（已展开、反映重定向）→ User Shell Folders
 // （需展开 %USERPROFILE%，注册表不可读的沙箱环境两个都拿不到）→ home\Desktop → OneDrive\Desktop。
 // 修复：原实现注册表读取失败时直接退 home\Desktop，桌面重定向机器（如 D:\桌面）在此环境
 // 被误报 ENOENT WARN；仅当全部候选都不存在才落到最后一个候选并 WARN。

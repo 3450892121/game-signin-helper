@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>浏览器登录 · 游戏社区签到助手</title>
 <style>
- * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
     background: linear-gradient(160deg, #0e1a2e 0%, #16304f 60%, #1b3a5e 100%);
@@ -91,7 +91,9 @@
   </div>
 
   <!-- tab 的 data-tab 值必须与主进程下发的 method key 完全一致（main.js 用 'sms'/'paste' 这类字符串过滤），
-       否则该 tab 永远不显示。本页面只提供 sms / paste 两个 tab，test-consistency.js 有断言防止误加其它 tab。 -->
+       否则该 tab 永远不显示。密码登录 tab 已于 2026-10-05 移除：异环的 loginByPassword 已删；
+       而且此前这里的 data-tab 值写的是缩写、框架下发的却是全称 password，两者不符
+       → 那个 tab 从来没有显示过。test-consistency.js 有断言防止它被加回来。 -->
   <div class="tabs" id="tabs">
     <div class="tab" data-tab="sms">短信登录</div>
     <div class="tab" data-tab="paste">粘贴凭据</div>
@@ -145,7 +147,7 @@ if (!TOKEN) {
 }
 
 const $ = id => document.getElementById(id);
-// 动态插值转义（页面无 CSP，插件凭据字段异常/恶意时防 HTML 注入）
+// v2.7.6 D7：动态插值转义（页面无 CSP，插件凭据字段异常/恶意时防 HTML 注入）
 function escH(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function showMsg(el, type, text) { el.className = 'msg ' + type; el.textContent = text; }
 function clearMsg(el) { el.className = 'msg'; }

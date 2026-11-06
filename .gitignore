@@ -23,3 +23,7 @@ config.json
 # 系统与编辑器临时
 Thumbs.db
 .DS_Store
+/notes/
+/AGENTS.md
+/CLAUDE.md
+/开源发布/

@@ -65,7 +65,7 @@ async function runSelftest() {
     }
     check('IPC 白名单通道声明完整', registered.length === IPC_CHANNELS.length && IPC_CHANNELS.length >= 33, registered.length + ' 通道');
 
-    // 3.5 IPC 载荷形状与 IPC 白名单对齐（直接调用 handler 模拟 renderer 调用；登录/网络类通道不在此实测）
+    // 3.5 IPC 载荷形状与契约 §5 对齐（直接调用 handler 模拟 renderer 调用；登录/网络类通道不在此实测）
     const H = ipcMain._invokeHandlers;
     let shapeFail = 0;
     const shapeNotes = [];
@@ -87,7 +87,7 @@ async function runSelftest() {
       ['system:autostart:get', undefined, (r) => r && r.ok === true && typeof r.enabled === 'boolean'],
       ['scheduler:info', undefined, (r) => r && r.ok === true],
       ['app:info', undefined, (r) => r && r.ok === true && r.info && typeof r.info.version === 'string' && r.info.dataDir],
-      ['qqbot:status', undefined, (r) => r && r.ok === true && r.bind && typeof r.bind.status === 'string' && typeof r.report === 'object'],   // 只读，不发起网络（只读，不发起网络）
+      ['qqbot:status', undefined, (r) => r && r.ok === true && r.bind && typeof r.bind.status === 'string' && typeof r.report === 'object'],   // v2.9.0（只读，不发起网络）
       ['run:all', undefined, (r) => r && r.ok === true && Array.isArray(r.summary)],
     ];
     if (H && typeof H.get === 'function') {
@@ -99,12 +99,12 @@ async function runSelftest() {
           shapeFail++; shapeNotes.push(ch + ' 调用异常: ' + e.message);
         }
       }
-      check('IPC 载荷形状与 IPC 白名单对齐（' + shapeCases.length + ' 通道）', shapeFail === 0, shapeFail ? shapeNotes.join('；') : '全部通过');
+      check('IPC 载荷形状与契约 §5 对齐（' + shapeCases.length + ' 通道）', shapeFail === 0, shapeFail ? shapeNotes.join('；') : '全部通过');
     } else {
-      check('IPC 载荷形状与 IPC 白名单对齐', false, 'ipcMain._invokeHandlers 不可用，跳过');
+      check('IPC 载荷形状与契约 §5 对齐', false, 'ipcMain._invokeHandlers 不可用，跳过');
     }
 
-    // 开机自启参数（Windows 登录自启必须带 --hidden 静默进托盘；openAsHidden 只在 macOS 有效）
+    // 3.53 开机自启参数（Windows 登录自启必须带 --hidden 静默进托盘；openAsHidden 仅 macOS 且已移除）
     {
       const asOn = autostartSettings(true);
       const asOff = autostartSettings(false);
@@ -153,7 +153,7 @@ async function runSelftest() {
       }
     }
 
-    // 3.7 网页登录独立会话（重复打开场景）
+    // 3.7 网页登录独立会话（F1 修复断言：重复打开场景）
     // 场景：第一次网页登录已绑定成功（webLoginBound[game]=true）后，用户再次打开同一游戏的网页登录窗口
     // （添加第二个账号/删除后重绑）→ handleWebOpen 必须重置绑定标记，使第二次会话可重新提取/绑定。
     state.webLoginBound = state.webLoginBound || {};
@@ -166,7 +166,7 @@ async function runSelftest() {
     check('网页登录会话重置幂等（未绑定游戏无副作用）', state.webLoginBound['tajiduo'] === false,
       'webLoginBound[tajiduo] 保持 false');
 
-    // 3.75 浏览器登录界面服务器（异环登录的兜底入口，纯本机/离线）
+    // 3.75 浏览器登录界面服务器（t17：异环验证码风控兜底基础设施，纯本机/离线）
     try {
       const httpMod = http;
       const gui = await browserLogin.createGuiServer({
@@ -203,12 +203,12 @@ async function runSelftest() {
       check('浏览器登录界面服务器（鉴权 403/带token 200/页面/关闭事件）', false, e.message);
     }
 
-    // 3.8 游戏管理 E2E（games:reload 发现/消失 + games:remove 插件契约清理链）
+    // 3.8 游戏管理 E2E（t10：games:reload 发现/消失 + games:remove 契约 §6 清理链）
     // 在自测数据目录下临时创建用户插件 → reload 出现 → 建档 → remove → 账号/设置/任务/目录全清 → reload 消失
     const e2eId = 'selftest-e2e';
     const e2ePluginsDir = path.join(svc.dataDir, 'plugins');
     const e2eDir = path.join(e2ePluginsDir, e2eId);
-    const globalTaskName = TASK_PREFIX + '全局';   // 只建全局统一时间一个任务
+    const globalTaskName = TASK_PREFIX + '全局';   // v2.6.0：只建全局统一时间一个任务
     let e2eOk = true;
     const e2eNotes = [];
     try {
@@ -220,10 +220,10 @@ async function runSelftest() {
         "  name: '自测游戏',",
         "  community: '自测社区',",
         "  icon: '🧪',",
-        "  loginMethods: [ { id: 'paste', kind: 'paste', label: '粘贴 token', needs: ['token'], hint: 'E2E 专用', paste: async (ctx, raw) => ({ token: String(raw || '').trim() }) } ],",
+        "  loginMethods: [ { id: 'paste', kind: 'paste', label: '粘贴 token', needs: ['token'], hint: 't10 E2E 专用', paste: async (ctx, raw) => ({ token: String(raw || '').trim() }) } ],",
         "  describeCredential: () => ({ nickname: 'e2e-账号' }),",
-        "  onRemove: async () => { /* E2E 清理钩子 */ },",
-        "  signin: async () => ({ result: { ok: false, level: 'error', status: 'skipped', title: 'E2E 占位', lines: [], reward: '' }, credentialsUpdate: null })",
+        "  onRemove: async () => { /* t10 E2E 清理钩子 */ },",
+        "  signin: async () => ({ result: { ok: false, level: 'error', status: 'skipped', title: 't10 E2E 占位', lines: [], reward: '' }, credentialsUpdate: null })",
         "};"
       ].join('\n'), 'utf8');
 
@@ -280,7 +280,7 @@ async function runSelftest() {
     check('游戏管理 E2E（reload 发现/消失 + remove §6 清理链：账号/设置/系统任务/目录/注册表）', e2eOk,
       e2eOk ? '全链通过（系统任务恒为单个「' + globalTaskName + '」）' : e2eNotes.join('；'));
 
-    // 3.9 插件契约「用户直接删除插件目录（不经界面）」→ reload 检测消失 → 自动清理孤儿账号/设置/系统任务
+    // 3.9 契约 §6「用户直接删除插件目录（不经界面）」→ reload 检测消失 → 自动清理孤儿账号/设置/系统任务
     const e2eId2 = 'selftest-orphan';
     const e2eDir2 = path.join(e2ePluginsDir, e2eId2);
     let orphanOk = true;
@@ -332,7 +332,7 @@ async function runSelftest() {
     } finally {
       try { if (fs.existsSync(e2eDir2)) fs.rmSync(e2eDir2, { recursive: true, force: true }); } catch (e) { /* ignore */ }
     }
-    check('按插件契约：直接删目录→reload 自动清理孤儿账号/设置/系统任务/目录/注册表', orphanOk,
+    check('契约 §6 直接删目录→reload 自动清理孤儿账号/设置/系统任务/目录/注册表', orphanOk,
       orphanOk ? '孤儿数据全清（系统任务恒为单个全局任务）' : orphanNotes.join('；'));
 
     // 4. 调度
@@ -398,7 +398,7 @@ async function runSelftest() {
 // ---------------------------------------------------------------------------
 // 系统任务真实往返测试（--task-test）：只操作「签到助手-测试」任务
 // 受限环境（沙箱阻断 DCOM/RPC → Task Scheduler 不可达）下自动降级为：
-// dry-run 断言 + 环境阻塞报告（退出码 0 表示"代码正确、环境阻塞"，日志明示）。
+//   dry-run 断言 + 环境阻塞报告（退出码 0 表示"代码正确、环境阻塞"，日志明示）。
 // ---------------------------------------------------------------------------
 async function runTaskTest() {
   const name = TASK_PREFIX + '测试';

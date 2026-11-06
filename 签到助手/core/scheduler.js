@@ -1,26 +1,26 @@
 'use strict';
 /**
- * 调度模块：应用内每日定时签到（主调度）+ 开机/拉起补跑
+ * 调度模块：应用内每日定时签到（主调度）+ 开机/拉起补跑（v2.6.0 账号粒度）
  *
- * 规则：
- * - 生效时间 = 账号自定义时间 → 游戏统一时间 → 全局统一时间（storage.effectiveTimeFor 三级回退）
- * - 触发点按「账号」算：下一个最近的账号生效时间点；同一分钟的多账号（含跨游戏）归并为一个触发
- * - 到点只跑该时间点的账号（runner.runGame + onlyAccountIds），日志仍按游戏成块
- * - 补跑 catchUp：账号粒度 —— 生效时间今天已过、且今日结果无该 accountId 的启用账号补跑；
- * 今日结果存在但失败的账号不自动重试、明确提示。全局系统任务拉起时也走此兜底
- * - 运行结束后立即检查已过时未执行的触发并补执行（定时触发被运行中任务挤掉时不顺延到明天）
- * - 不变量：调度期间定时器始终武装——start/finally 均先 schedule 再做任何
- * catchUp；否则补跑运行窗口（可达数分钟）内到达的触发点会被静默吞到明天
+ * 规则（v2.6.0 方案 §4）：
+ *   - 生效时间 = 账号自定义时间 → 游戏统一时间 → 全局统一时间（storage.effectiveTimeFor 三级回退）
+ *   - 触发点按「账号」算：下一个最近的账号生效时间点；同一分钟的多账号（含跨游戏）归并为一个触发
+ *   - 到点只跑该时间点的账号（runner.runGame + onlyAccountIds），日志仍按游戏成块
+ *   - 补跑 catchUp()：账号粒度 —— 生效时间今天已过、且今日结果无该 accountId 的启用账号补跑；
+ *     今日结果存在但失败的账号不自动重试、明确提示。全局系统任务拉起时也走此兜底
+ *   - 运行结束后立即检查已过时未执行的触发并补执行（定时触发被运行中任务挤掉时不顺延到明天）
+ *   - 不变量（v2.7.7 R6）：调度期间定时器始终武装——start()/finally 均先 schedule() 再做任何
+ *     catchUp；否则补跑运行窗口（可达数分钟）内到达的触发点会被静默吞到明天
  *
  * 用法：
- * const sched = scheduler.create({ storage, runner, log, logger });
- * sched.start; sched.stop; sched.nextRunInfo;
+ *   const sched = scheduler.create({ storage, runner, log, logger });
+ *   sched.start();  sched.stop();  sched.nextRunInfo();
  */
 
 function create({ storage, runner, log, logger }) {
   let timer = null;
   let running = false;
-  // catchUp 调用串行化——设置保存点也会触发补跑检查，并发扫描会因
+  // v2.7.7 R6：catchUp 调用串行化——设置保存点也会触发补跑检查，并发扫描会因
   // 「结果尚未写出」重复入队同一账号；串行后后一次扫描重新读盘，天然去重
   let catchUpTail = Promise.resolve();
 
@@ -72,10 +72,10 @@ function create({ storage, runner, log, logger }) {
   }
 
   /**
- * 补跑（账号粒度）：某启用账号「生效时间今天已过」且「今日结果无该账号」时补跑，
- * 只补无结果账号；结果存在但失败的账号明确提示、不自动重试。
- */
-  /** 对外入口串行化（内部实现 catchUpImpl） */
+   * 补跑（账号粒度）：某启用账号「生效时间今天已过」且「今日结果无该账号」时补跑，
+   * 只补无结果账号；结果存在但失败的账号明确提示、不自动重试。
+   */
+  /** v2.7.7 R6：对外入口串行化（内部实现 catchUpImpl） */
   function catchUp() {
     const run = catchUpTail.then(() => catchUpImpl());
     catchUpTail = run.then(() => {}, () => {});   // 单次失败不卡死队列
@@ -112,7 +112,7 @@ function create({ storage, runner, log, logger }) {
     }
   }
 
-  /** 运行完成后立即检查「已过时未执行的触发」并补执行 */
+  /** 运行完成后立即检查「已过时未执行的触发」并补执行（R2） */
   async function runDue() {
     await catchUp();
   }
@@ -124,7 +124,7 @@ function create({ storage, runner, log, logger }) {
     const delay = Math.max(1000, next.ts - Date.now());
     timer = setTimeout(async () => {
       timer = null;
-      if (running) return; // 上一次还在跑：本次触发由运行结束后的 runDue 补执行
+      if (running) return; // 上一次还在跑：本次触发由运行结束后的 runDue() 补执行
       running = true;
       try {
         const desc = next.groups.map(g => g.gameId + '×' + g.accountIds.length).join('、') || '无';
@@ -135,8 +135,8 @@ function create({ storage, runner, log, logger }) {
         }
       } finally {
         running = false;
-        // 先重排下一次（保持定时器常武装），再补执行——
-        // 原顺序 runDue 的补跑运行期间到达的触发点会被吞到明天
+        // v2.7.7 R6：先重排下一次（保持定时器常武装），再补执行——
+        // 原顺序 runDue() 的补跑运行期间到达的触发点会被吞到明天
         schedule();
         // 运行完成后：立即检查是否还有已过时未执行的触发（含运行期间错过的），补执行而非顺延
         try { await runDue(); } catch (e) { log('补执行检查异常：' + e.message); }
@@ -146,7 +146,7 @@ function create({ storage, runner, log, logger }) {
 
   function start() {
     stop();
-    // 先武装定时器再补跑——catchUp 可能运行数分钟，期间到达的触发点由定时器
+    // v2.7.7 R6：先武装定时器再补跑——catchUp 可能运行数分钟，期间到达的触发点由定时器
     // 正常接管（running=false → 触发回调执行，经 runner 队列串行），不再被静默吞到明天
     schedule();
     catchUp().catch(e => log('补跑检查异常：' + e.message)).then(() => schedule());

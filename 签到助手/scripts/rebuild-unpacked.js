@@ -3,10 +3,10 @@
  * 重建 dist/win-unpacked（绕过 electron-builder 的 spawn EPERM）
  *
  * 步骤：
- * 1. BFS 收集 package.json dependencies 的生产依赖（qrcode 及其递归依赖）
- * 2. 组装临时 app 目录：源码(main/preload/renderer/core/package.json) + node_modules
- * 3. 用 @electron/asar 进程内打包成 resources/app.asar（不 spawn，绕开沙箱限制）
- * 4. 复制 node_modules/electron/dist 到 win-unpacked，并把 electron.exe 改名为 游戏社区签到助手.exe
+ *   1. BFS 收集 package.json dependencies 的生产依赖（qrcode 及其递归依赖）
+ *   2. 组装临时 app 目录：源码(main/preload/renderer/core/package.json) + node_modules
+ *   3. 用 @electron/asar 进程内打包成 resources/app.asar（不 spawn，绕开沙箱限制）
+ *   4. 复制 node_modules/electron/dist 到 win-unpacked，并把 electron.exe 改名为 游戏社区签到助手.exe
  *
  * 用法：node scripts/rebuild-unpacked.js
  */

@@ -1,19 +1,19 @@
 'use strict';
 /**
- * 一键发版脚本——构建 → 组装免安装版 → 打包 7z → 重链系统引用 → 清理旧版 → 自检
+ * 一键发版脚本（v2.7.4+ 引入）——构建 → 组装免安装版 → 打包 7z → 重链系统引用 → 清理旧版 → 自检
  *
  * 用法（在 签到助手/ 下执行）：
- * node scripts/release.js # 全流程（默认只保留当前版本，清理更早的 免安装版-v* 目录与 7z）
- * node scripts/release.js --relink-only # 只重链系统引用到最新版 exe（目录已存在、无需重构建时）
- * node scripts/release.js --keep-old # 保留旧版本目录（不清理）
- * node scripts/release.js --no-7z # 跳过 7z 打包
+ *   node scripts/release.js                # 全流程（默认只保留当前版本，清理更早的 免安装版-v* 目录与 7z）
+ *   node scripts/release.js --relink-only  # 只重链系统引用到最新版 exe（目录已存在、无需重构建时）
+ *   node scripts/release.js --keep-old     # 保留旧版本目录（不清理）
+ *   node scripts/release.js --no-7z        # 跳过 7z 打包
  *
  * 为什么需要它：免安装版按「游戏社区签到助手-免安装版-vX.Y.Z」版本化目录交付，目录改名/换代后，
  * 系统里 4 处引用仍指向旧目录会失效（曾引发「开机自启失效」「计划任务到点启动失败」「点通知无反应」）：
- * ① HKCU Run 键 electron.app.游戏社区签到助手 （自愈：启动签到助手.bat / 应用启动）
- * ② 计划任务「签到助手-全局」 （自愈：应用打包启动时同步）
- * ③ 桌面 + 开始菜单「游戏社区签到助手.lnk」 （不自愈，必须重指）
- * ④ Electron 通知激活器 CLSID LocalServer32 （不自愈，必须重指）
+ *   ① HKCU Run 键 electron.app.游戏社区签到助手   （自愈：启动签到助手.bat / 应用启动）
+ *   ② 计划任务「签到助手-全局」                    （自愈：应用打包启动时同步）
+ *   ③ 桌面 + 开始菜单「游戏社区签到助手.lnk」        （不自愈，必须重指）
+ *   ④ Electron 通知激活器 CLSID LocalServer32      （不自愈，必须重指）
  * 本脚本发版时一次性全部重链到新 exe，杜绝漏项；每次发版跑它即可。
  */
 
@@ -21,7 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
-const { decodeProcOutput } = require('../core/proc-output.js');   // GBK 兼容解码
+const { decodeProcOutput } = require('../core/proc-output.js');   // v2.7.5：GBK 兼容解码
 
 const REPO = path.resolve(__dirname, '..');          // 签到助手/
 const ROOT = path.resolve(REPO, '..');               // 工作区根（放 免安装版 目录）
@@ -47,7 +47,7 @@ function ok(msg) { console.log('  ✅ ' + msg); }
 function skip(msg) { console.log('  ⏭  ' + msg); }
 function fail(msg) { problems++; console.log('  ❌ ' + msg); }
 function run(cmd, argsArr, cwd) {
-  // reg/schtasks 在 zh-CN Windows 输出 GBK 字节，按 utf8 解码中文全乱码，
+  // v2.7.5 修复：reg/schtasks 在 zh-CN Windows 输出 GBK 字节，按 utf8 解码中文全乱码，
   // 曾导致 CLSID 重链正则匹配不到被静默跳过、Run 键自检误报。改 buffer + GBK 兼容解码。
   const r = spawnSync(cmd, argsArr, { encoding: 'buffer', stdio: 'pipe', cwd: cwd || ROOT, timeout: 180000 });
   return { ok: !r.error && r.status === 0, status: r.status, out: decodeProcOutput(r.stdout), err: decodeProcOutput(r.stderr), error: r.error };
@@ -73,7 +73,7 @@ function relinkRunKey(settings) {
 /* ---------- ② 计划任务「签到助手-全局」 ---------- */
 function relinkTask(settings) {
   console.log('[系统任务] ' + TASK_NAME);
-  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(settings.defaultTime || '')) ? settings.defaultTime : '';   // 严格 HH:mm（原 \d{1,2} 放行 25:90 之类非法值写进计划任务）
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(settings.defaultTime || '')) ? settings.defaultTime : '';   // v2.7.6 D15：严格 HH:mm（原 \d{1,2} 放行 25:90 之类非法值写进计划任务）
   if (settings.useSystemTask === true && time) {
     const r = run('schtasks', ['/Create', '/F', '/TN', TASK_NAME, '/TR', '"' + EXE + '" --hidden', '/SC', 'DAILY', '/ST', time]);
     r.ok ? ok('useSystemTask=true → 每日 ' + time + ' 指向 ' + EXE) : fail('schtasks 失败: ' + (r.err || r.error));
@@ -92,7 +92,7 @@ function relinkShortcuts() {
   const body = '# -*- coding: utf-8 -*-' + "\n" +
     "$ErrorActionPreference = 'Stop'" + "\n" +
     "Write-Output 'running'" + "\n" +
-    "$target = '" + EXE + "'" + "\n" +   // 删除无效 replace（PS 单引号串无需转义反斜杠，原为死代码）
+    "$target = '" + EXE + "'" + "\n" +   // v2.7.6 D15：删除无效 replace（PS 单引号串无需转义反斜杠，原为死代码）
     '$sh = New-Object -ComObject WScript.Shell' + "\n" +
     "$desktops = @([Environment]::GetFolderPath('Desktop'))" + "\n" +
     "try { $desktops += [Environment]::GetFolderPath('CommonDesktopDirectory') } catch {}" + "\n" +
@@ -175,7 +175,7 @@ function buildAssemble() {
 
   if (!NO_7Z) {
     console.log('\n===== 3/4 打包 7z =====');
-    // 7z 可执行文件取自两处：工作区根的 工具/7zr.exe（自带 7zr 时优先），否则用开发依赖 7zip-bin 里的 7za
+    // 沿用公开版的备用工具：源码下载者不需要另找本机未入库的 7zr.exe。
     let z7 = path.join(ROOT, '工具', '7zr.exe');
     if (!fs.existsSync(z7)) {
       try { z7 = require('7zip-bin').path7za; } catch (e) { z7 = ''; }
@@ -183,7 +183,7 @@ function buildAssemble() {
     if (!z7 || !fs.existsSync(z7)) { fail('找不到 7z 可执行文件：把 7zr.exe 放进工作区根「工具/」，或在 签到助手/ 下执行 npm install（用 7zip-bin 自带 7za），或加 --no-7z 跳过打包'); return; }
     ok('使用 7z：' + z7);
     const z = run(z7, ['a', '-t7z', '-mx=9', '-m0=BCJ', '-m1=LZMA2:25', FOLDER + '.7z', FOLDER], ROOT);
-    // spawn 失败（如沙箱 EPERM/ENOENT）时 z.err 为空串（falsy）、z.error 是 Error 对象，
+    // v2.7.7 R7：spawn 失败（如沙箱 EPERM/ENOENT）时 z.err 为空串（falsy）、z.error 是 Error 对象，
   // 原写法把 Error 对象当字符串调 .slice 直接 TypeError 崩溃，把真实失败原因吞掉
   z.ok ? ok(FOLDER + '.7z 已生成') : fail('7z 失败: ' + String(z.err || z.out || (z.error && z.error.message) || ('exit ' + z.status)).slice(0, 200));
   }

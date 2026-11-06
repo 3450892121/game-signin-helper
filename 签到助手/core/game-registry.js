@@ -3,21 +3,22 @@
  * 游戏注册表（core/game-registry.js）—— t4 交付
  *
  * 职责（契约定稿 t2 §4 与本任务 t4）：
- * - 用户插件目录发现：主进程注入的 userDir（绿色版随包「脚本」/自测临时目录/安装版兜底数据目录），扫描其下 <目录>/index.js；框架不内置脚本，插件由用户安装
- * - validatePlugin 逐字段校验（id/name/community/loginMethods/signin 必备；
- * kind/hint/describeCredential/onRemove/meta/defaultEnabled 按契约规约补齐）
- * - 单插件加载失败隔离：坏插件只记入 loadErrors，不拖垮其它游戏与框架
- * - removePlugin：内置拒绝删除；用户插件移除前先调用插件 onRemove 数据清理钩子，
- * 再删除插件目录；返回 gameId 供主进程按插件契约清理账号/设置/会话/系统任务
- * - 兼容现有 runner/scheduler：签到仍由 settings.games 驱动，注册表只负责
- * 「发现/校验/元数据」，不引入新的第三方依赖（纯 Node 内置模块）
+ *  - 用户插件目录发现：主进程注入的 userDir（绿色版随包「脚本」/自测临时目录/安装版兜底数据目录），扫描其下 <目录>/index.js；框架不内置脚本，插件由用户安装
+ *  - validatePlugin 逐字段校验（id/name/community/loginMethods/signin 必备；
+ *    kind/hint/describeCredential/onRemove/meta/defaultEnabled 按契约规约补齐）
+ *  - 单插件加载失败隔离：坏插件只记入 loadErrors，不拖垮其它游戏与框架
+ *  - removePlugin：内置拒绝删除；用户插件移除前先调用插件 onRemove 数据清理钩子，
+ *    再删除插件目录；返回 gameId 供主进程按契约 §6 清理账号/设置/会话/系统任务
+ *  - 兼容现有 runner/scheduler：签到仍由 settings.games 驱动，注册表只负责
+ *    「发现/校验/元数据」，不引入新的第三方依赖（纯 Node 内置模块）
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const KINDS = ['sms', 'web', 'paste', 'gui'];   // 插件 kind 词汇表（gui=浏览器登录，实现见 core/browser-login.js + core/login-gui.html）
-// 框架只支持上面这四种 kind。新增一种需同时改：本文件 KINDS/guessKind/validatePlugin/转发白名单、main.js 的 LOGIN_KIND 与 IPC、
+// 注：qr 与 password 已于 2026-10-05 从词汇表移除——无插件声明、框架分发路径与渲染层面板同步删除。
+// 要恢复需同时改：本文件 KINDS/guessKind/validatePlugin/转发白名单、main.js 的 LOGIN_KIND 与 IPC、
 // renderer/app.js 的 KIND_LABEL/methodKind/面板模板，以及 docs/脚本开发规范.md。
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
@@ -96,7 +97,7 @@ function normalize(mod) {
       return copy;
     }),
   };
-  // 函数引用仅注册表内部使用（main/runner 通过 get 获取），不外发到渲染层
+  // 函数引用仅注册表内部使用（main/runner 通过 get() 获取），不外发到渲染层
   // 指纹函数（genFingerprint/reuseFingerprint）也须随注册表外发，
   // 否则 makeLoginCtx 在「无既有指纹的首个账号」时 fp=null → tajiduo loginByPaste 读 fp.deviceid 崩溃
   // startGuiLogin 同理：validatePlugin 承认它可满足 kind:'gui'，若不在这里转发，插件校验能过、运行时却拿不到
@@ -117,7 +118,7 @@ function rmSafe(target) {
 /**
  * 创建注册表实例。
  * @param {object} opts { dataDir?, userDir?, log? }
- * dataDir：用户数据目录（缺省时 userDir 需显式给出；不使用则无用户插件发现）
+ *   dataDir：用户数据目录（缺省时 userDir 需显式给出；不使用则无用户插件发现）
 
  */
 function create(opts) {
@@ -126,9 +127,9 @@ function create(opts) {
   const log = opts.log || function () {};
   const registry = new Map();   // id -> 归一化插件对象
   let loadErrors = [];
-  // 「上次存在、本次消失」检测——用户直接删除插件目录后，下次 loadAll 据上一轮记录的
+  // t12/F3：契约 §6「上次存在、本次消失」检测——用户直接删除插件目录后，下次 loadAll 据此前记录的
   // 用户插件目录名集合识别消失项，供主进程按清理链删除孤儿账号/设置/会话/系统任务。
-  // 基线是「目录名集合 + 目录名→插件id 映射」——契约允许目录名≠id（见 validatePlugin 注），
+  // v2.7.6 Z1：基线升级为「目录名集合 + 目录名→插件id 映射」——契约允许目录名≠id（见 validatePlugin 注），
   // 孤儿清理必须按真实插件 id 执行，否则删插件目录后账号/设置清不掉却报"已清理"
   const prevState0 = readUserDirState();
   let prevUserDirs = new Set(prevState0.dirs);
@@ -136,7 +137,7 @@ function create(opts) {
   let disappearedDirs = [];                          // 本次 loadAll 检测到的消失项 [{ dir, id|null }]（getDisappeared 消费）
 
   /** 读取上次会话记录的基线（dataDir/.registry-user-dirs.json；无则空）。
- * 兼容两种格式：旧版=目录名数组（无 id 映射，迁移期 id=null）；={ dirs:[], dirToId:{} }。 */
+   * 兼容两种格式：旧版=目录名数组（无 id 映射，迁移期 id=null）；v2.7.6 起={ dirs:[], dirToId:{} }。 */
   function readUserDirState() {
     if (!opts.dataDir) return { dirs: [], dirToId: {} };
     try {
@@ -187,7 +188,7 @@ function create(opts) {
         }
         userDirNames = dirs;
       } catch (e) {
-        // 扫描异常时沿用上次已加载的用户插件，且本轮不做消失检测——
+        // v2.7.6 D3：扫描异常时沿用上次已加载的用户插件，且本轮不做消失检测——
         // 目录可能只是临时不可读，清空注册表会让 storage 把 games 剪空并随任意保存落盘
         userDirScanFailed = true;
         errs.push({ dir: userDir, errors: ['扫描用户插件目录失败：' + e.message] });
@@ -219,8 +220,8 @@ function create(opts) {
     registry.clear();
     for (const [id, p] of next) registry.set(id, p);
     loadErrors = errs;
-    // 插件契约：检测「上次存在、本次消失」的用户插件目录（仅用户目录；校验失败但目录仍在的不算消失）
-    // 扫描失败时目录状态未知——不更新基线、不做消失检测（防误报全部消失）
+    // 契约 §6：检测「上次存在、本次消失」的用户插件目录（仅用户目录；校验失败但目录仍在的不算消失）
+    // v2.7.6：扫描失败时目录状态未知——不更新基线、不做消失检测（防误报全部消失）
     if (userDirScanFailed) {
       disappearedDirs = [];
     } else {
@@ -259,10 +260,10 @@ function create(opts) {
   }
 
   /**
- * 移除插件（仅用户插件；内置拒绝）。
- * 流程（插件契约）：先调插件 onRemove({ gameId }) 数据清理钩子 → 删除插件目录 → 从注册表移除。
- * 账号/设置/会话/系统任务的清理由主进程按返回值 gameId 继续执行（storage+runner+scheduler）。
- */
+   * 移除插件（仅用户插件；内置拒绝）。
+   * 流程（契约 §6）：先调插件 onRemove({ gameId }) 数据清理钩子 → 删除插件目录 → 从注册表移除。
+   * 账号/设置/会话/系统任务的清理由主进程按返回值 gameId 继续执行（storage+runner+scheduler）。
+   */
   async function removePlugin(id, opts) {
     opts = opts || {};
     const p = registry.get(id);
@@ -285,7 +286,7 @@ function create(opts) {
     return {
       removed: true, gameId: id, source: 'user', hook,
       dirRemoved,
-      note: '账号/设置/会话/系统任务仍由主进程按插件契约清理（本模块不触碰 storage/accounts/settings）',
+      note: '账号/设置/会话/系统任务仍由主进程按契约 §6 清理（本模块不触碰 storage/accounts/settings）',
     };
   }
 
